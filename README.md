@@ -3,16 +3,16 @@
     Aplicatie tip Supervisor
 
     Capitol 1 - Introducere
-1.1. Scopul proiectului - Explicație sumară a produsului software și ce anume va realiza.
-    Proiectul presupune dezvoltarea unei aplicatii de management si monitorizare a proceselor lansate in executie sub Supervisor pe o statie.
+1.1. Scopul proiectului 
+    Proiectul presupune dezvoltarea unei aplicatii de management si monitorizare a proceselor lansate in executie sub Supervisor.
 
-1.2. Lista definițiilor - Un tabel în care vor fi incluse toate abrevierile folosite în cadrul DCS. 
+1.2. Lista definițiilor
     - fsup = program tip command-line-interface ce permite interactiunea utilizatorului cu backsup;
     - backsup = serviciu systemd cu rol in managementul proceselor;
-    - 
+    - POSIX = o familie de standarde specificate de Societatea de calculatoare IEEE pentru menținerea compatibilității dintre sisteme de operare.
 
-Capitolul 2 - Descrierea generală a produsului software
-2.1. Descrierea produsului software - descrierea funcționalităților produsului software și încadrarea acestora în cerințele unui mediu de lucru.
+Capitolul 2
+2.1. Descrierea produsului software 
     Arhitectura aplicatiei este de Client (Supervisor) - Server (Manager)
     Serverul (Manager) reprezinta un program ce ofera utilizatorului un mijloc de remote management al proceselor rulate sub aplicatia Supervisor. 
     Clientul (Supervisor) este aplicatia care ruleaza pe o statie si asigura executia programelor dupa criteriile fisierelor de configurare corespunzatoare. 
