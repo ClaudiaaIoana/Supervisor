@@ -45,6 +45,8 @@ void *manager_thread(void *param);
 
 void create_child_proccess(const char *filename);
 
+void launch_group(const char *filename);
+
 void redirect(char *parameters, int fd_redirected);
 
 void change_owner(uid_t uid);
@@ -108,7 +110,45 @@ void create_child_proccess(const char *filename)
     {
         printf("Child proccess PID %d\n", getpid());
 
-        char    *exec_name="/home/claudia/Documents/Supervisor/client/test1";
+        char    *exec_name;
+
+        exec_name=analise_config(filename);
+
+        execl(exec_name, (const char*)exec_name, (char*)NULL);
+        exit(EXIT_SUCCESS);
+    }
+    if (pid > 0)
+    {
+        printf("Parent proccess PID %d\n", getpid());
+    }
+}
+
+void launch_group(const char *filename)
+{
+    FILE    *file;
+    int     n=1;
+    char    line[64];
+
+    file=fopen(filename, "r");
+    fgets(line,64,file);
+
+    if(strchr(line,"[group:"))
+    {
+        fscanf(file,"%d",&n);
+    }
+    //TODO: for -> efery prog in 
+
+    pid_t pid;
+    pid = fork();
+    if (pid < 0)
+    {
+        perror("Counldn't create child process");
+    }
+    if (pid == 0)
+    {
+        printf("Child proccess PID %d\n", getpid());
+
+        char    *exec_name;
 
         exec_name=analise_config(filename);
 
