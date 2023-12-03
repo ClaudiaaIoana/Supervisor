@@ -1,20 +1,22 @@
-#include <sys/types.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <pthread.h>
 #include <pthread.h>
 #include <fcntl.h>
-#include <stdlib.h>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <signal.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <grp.h>
 #include <pwd.h>
+
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
+
+#include "../utils/utils.h"
+#include "../utils/json.h"
 
 // when working with pipes
 #define READ_END 0
@@ -41,7 +43,7 @@ struct Setting{
 
 }typedef Setting;
 
-void *manager_thread(void *param);
+int conn_fd;
 
 void create_child_proccess(const char *filename);
 
@@ -69,9 +71,40 @@ void _erase_front_spaces(char** string);
 
 char* analise_config(const char *filename);
 
-
-int main()
+int main(int argc, char* argv[])
 {
+    if (argc != 3) {
+        printf("\n Usage: %s <ip> <port>\n", argv[0]);
+        return 1;
+    }
+
+    __uint16_t port = 0;
+    int rc = sscanf(argv[2], "%hu", &port);
+    DIE(rc != 1, "invalid port");
+
+    conn_fd = socket(AF_INET, SOCK_STREAM, 0);
+    DIE(conn_fd < 0, "socket()");
+
+    struct sockaddr_in serv_addr;
+    socklen_t socket_len = sizeof(struct sockaddr_in);
+
+    int enable = 1;
+    if(setsockopt(conn_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
+        perror("setsockopt(SO_REUSEADDR) failed");
+    }
+
+    memset(&serv_addr, 0, socket_len);
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(port);
+
+    rc = inet_pton(AF_INET, argv[1], &serv_addr.sin_addr.s_addr);
+    DIE(rc <= 0, "inet_pton");
+
+    rc = connect(conn_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    DIE(rc < 0, "connect()");
+
+    printf("Connected to the manager...\n");
+
     create_child_proccess("test1.conf");
 
     int status;
@@ -97,10 +130,23 @@ int main()
 //                              DEFINE FUNCTIONS
 /////////////////////////////
 
-// Create the child procces, modify the parameters and lounch the executable
+// Create the child procces, modify the parameters and run the exec
 void create_child_proccess(const char *filename)
 {
     pid_t pid;
+    char *exec_name = filename;
+    printf("exec_name is %s\n", exec_name);
+
+    cJSON *json = cJSON_CreateObject(); 
+    cJSON_AddStringToObject(json, "name", exec_name); 
+    cJSON_AddNumberToObject(json, "pid", getpid()); 
+    char *json_str = cJSON_Print(json);
+
+    int rc = send(conn_fd, json_str, 1024, 0);
+    if(rc < 0) {
+        perror("send()");
+    }
+
     pid = fork();
     if (pid < 0)
     {
@@ -110,9 +156,9 @@ void create_child_proccess(const char *filename)
     {
         printf("Child proccess PID %d\n", getpid());
 
-        char    *exec_name;
+        char *exec_name;
 
-        exec_name=analise_config(filename);
+        exec_name = analise_config(filename);
 
         execl(exec_name, (const char*)exec_name, (char*)NULL);
         exit(EXIT_SUCCESS);
@@ -136,7 +182,7 @@ void launch_group(const char *filename)
     {
         fscanf(file,"%d",&n);
     }
-    //TODO: for -> efery prog in 
+    //TODO: for -> every prog in 
 
     pid_t pid;
     pid = fork();
@@ -194,7 +240,7 @@ void redirect(char *parameters, int fd_redirected)
     close(fd_out);
 }
 
-// change the owners of the proccess, first the group_owner, lather the owner
+// change the owners of the proccess, first the group_owner, later the owner
 // if we change first the user then it may not have enought permitions to change the group_owner
 // this function has to be called right before the exec command otherwise the rest of the parameter changes may not be done
 void change_owner(uid_t uid)
@@ -328,14 +374,14 @@ char* analise_config(const char *filename)
  /*  TODO:
     //verify program/group/include
  */
-    for(int i=0;i<n-2;i++) {
+    for(int i=0; i< n-2; i++) {
 
         fgets(line,64,file);
         word=strtok(line,": ");
         settings[i].set_w=key_word(word);
         if(settings[i].set_w==-1)
         {
-            printf("Incorect key owrd\n");
+            printf("Incorect key word\n");
             i--;
             n--;
         }
