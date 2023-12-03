@@ -20,12 +20,14 @@ typedef struct State{
     Process *processes;
     size_t process_count;
     size_t capacity;
+    FILE *log;
 } State;
 
 void init_manager_state(State *manager);
 void add_process(State *manager, pid_t pid, const char *process_name);
 void print_processes(const State *manager);
 void cleanup_state(State *manager);
+void log_entry(State *manager, const char *message);
 
 int main(int argc, char *argv[]) {
 
@@ -75,17 +77,23 @@ int main(int argc, char *argv[]) {
 
     char buffer[1024];
     while(1) {
-        printf("Waiting...\n");
+
+        printf("Give me process data...\n");
         int rc = recv(conn_fd, buffer, 1024, 0);
         if(rc <= 0) {
             break;
         }
-        // access pid in the JSON data
+        // access information in JSON data
         cJSON *json = cJSON_Parse(buffer);   
         cJSON *pid = cJSON_GetObjectItem(json, "pid");
         cJSON *process_name = cJSON_GetObjectItem(json, "name");
+        char message[32];
+        strcpy(message, "process launched");
+        log_entry(manager, message);
         add_process(manager, pid->valueint, process_name->valuestring); 
     }
+
+    //to do: implement a threadpool which executes specific tasks
 
     print_processes(manager);
 
@@ -101,6 +109,8 @@ void init_manager_state(State *manager) {
     manager->processes = calloc(manager->capacity, sizeof(Process));
     manager->process_count = 0;
     manager->capacity = 256;
+    manager->log = fopen("manager.log", "a");
+    DIE(manager->log == NULL, "fopen()");
 }
 
 void add_process(State *manager, pid_t pid, const char *process_name) {
@@ -108,6 +118,13 @@ void add_process(State *manager, pid_t pid, const char *process_name) {
     current_process->name = calloc(32, sizeof(char));
     current_process->pid = pid;
     strcpy(current_process->name, process_name);
+}
+
+void log_entry(State *manager, const char *message) {
+    //time_t current_time;
+    //time(&current_time);
+    fprintf(manager->log, "[%s]\n", message);
+    printf("logged success\n");
 }
 
 void print_processes(const State *manager) {
