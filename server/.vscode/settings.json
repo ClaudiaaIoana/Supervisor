@@ -1,9 +1,0 @@
-{
-    "files.associations": {
-        "*.cpp": "cpp",
-        "in.h": "c",
-        "utils.h": "c",
-        "ip.h": "c",
-        "unistd.h": "c"
-    }
-}
