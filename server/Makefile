@@ -5,7 +5,7 @@ server: server.c
 	$(CC) $(CFLAGS) server.c -o server 
 
 client: client.c
-	$(CC) $(CFLAGS) client.c -o client 
+	$(CC) $(CFLAGS) ../utils/json.c client.c -o client 
 
 # Portul pe care asculta serverul
 PORT = 12345

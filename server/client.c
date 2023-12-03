@@ -4,7 +4,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-#include "../../utils/utils.h"
+#include "../utils/utils.h"
+#include "../utils/json.h"
 
 #define BUFFER_SIZE 1024
 
@@ -48,14 +49,24 @@ int main(int argc, char *argv[]) {
     printf("Connected to the server...\n");
     char buffer[1024];
 
+    cJSON *json = cJSON_CreateObject(); 
+    cJSON_AddStringToObject(json, "name", "John Doe"); 
+    cJSON_AddNumberToObject(json, "age", 30); 
+    cJSON_AddStringToObject(json, "email", "john.doe@example.com"); 
+
+    char *json_str = cJSON_Print(json); 
+
     while(1) {
-        printf("Type your message: ");
+        printf("Type your command: ");
         memset(buffer, 0, 1024);
         fgets(buffer, 1024, stdin);
         DIE(rc < 0, "scanf()");
-        rc = send(conn_fd, buffer, 1024, 0);
-        DIE(rc < 0, "send()");
-        if(strcmp(buffer, "exit") == 0) {
+        if(strncmp(buffer, "send", 4) == 0) {
+            rc = send(conn_fd, json_str, 1024, 0);
+            DIE(rc < 0, "send()");
+        }
+        
+        if(strncmp(buffer, "exit", 4) == 0) {
             break;
         }
     }

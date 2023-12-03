@@ -4,7 +4,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-#include "../../utils/utils.h"
+#include "../utils/utils.h"
+#include "../utils/json.h"
 
 #define BUFFER_SIZE 1024
 
@@ -54,6 +55,10 @@ int main(int argc, char *argv[]) {
     int conn_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
     DIE(conn_fd < 0, "accept()");
     printf("Client connected...\n");
+
+
+    
+    
     char buffer[1024];
     while(1) {
         rc = recv(conn_fd, buffer, 1024, 0);
@@ -63,6 +68,11 @@ int main(int argc, char *argv[]) {
 
         printf("client: %s", buffer);
     }
+
+
+
+
+
 
     rc = close(conn_fd);
     DIE(rc < 0, "close()");
