@@ -47,11 +47,14 @@ int main(int argc, char *argv[]) {
     DIE(rc < 0, "connect()");
 
     printf("Connected to the server...\n");
+
+    //launch the process
+
     char buffer[1024];
 
     cJSON *json = cJSON_CreateObject(); 
     cJSON_AddStringToObject(json, "name", "John Doe"); 
-    cJSON_AddNumberToObject(json, "age", 30); 
+    cJSON_AddNumberToObject(json, "pid", 3003); 
     cJSON_AddStringToObject(json, "email", "john.doe@example.com"); 
 
     char *json_str = cJSON_Print(json); 
@@ -70,7 +73,6 @@ int main(int argc, char *argv[]) {
             break;
         }
     }
-    
     
     rc = close(conn_fd);
     DIE(rc < 0, "close()");
