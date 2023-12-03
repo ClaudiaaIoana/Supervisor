@@ -57,8 +57,6 @@ int main(int argc, char *argv[]) {
     printf("Client connected...\n");
 
 
-    
-    
     char buffer[1024];
     while(1) {
         rc = recv(conn_fd, buffer, 1024, 0);
