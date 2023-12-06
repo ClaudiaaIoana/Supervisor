@@ -1,1 +1,1 @@
-all: backsup test1 
+all: backsup test1 fsup

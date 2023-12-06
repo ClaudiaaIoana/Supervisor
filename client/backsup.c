@@ -15,6 +15,13 @@
 #include <sys/types.h>
 #include <grp.h>
 #include <pwd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <pthread.h>
+
+
+
+#define SOCK_PATH "/tmp/mysocket"
 
 // when working with pipes
 #define READ_END 0
@@ -69,10 +76,27 @@ void _erase_front_spaces(char** string);
 
 char* analise_config(const char *filename);
 
+void* create_thread_comm();
+
+void* handle_client(void *arg);
+
 
 int main()
 {
-    create_child_proccess("test1.conf");
+    pthread_t thread_id;
+    if (pthread_create(&thread_id, NULL, create_thread_comm, (void *)NULL) != 0) {
+            perror("pthread_create");
+            exit(EXIT_FAILURE);
+        }
+
+    // Add this line to wait for the created thread to finish
+    if (pthread_join(thread_id, NULL) != 0) {
+        perror("pthread_join");
+        exit(EXIT_FAILURE);
+    }
+
+
+    //create_child_proccess("test1.conf");
 
     int status;
     pid_t wpid;
@@ -132,7 +156,7 @@ void launch_group(const char *filename)
     file=fopen(filename, "r");
     fgets(line,64,file);
 
-    if(strchr(line,"[group:"))
+    if(strstr(line,"[group:"))
     {
         fscanf(file,"%d",&n);
     }
@@ -412,4 +436,83 @@ char* analise_config(const char *filename)
     }
 
     return path_to_exec;
+}
+
+void* create_thread_comm()
+{
+    int sockfd, new_sockfd;
+    socklen_t clilen;
+    struct sockaddr_un serv_addr, cli_addr;
+    pthread_t thread_id;
+
+    // Create a socket
+    sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sockfd == -1) {
+        perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    // Set up server address structure
+    serv_addr.sun_family = AF_UNIX;
+    strncpy(serv_addr.sun_path, SOCK_PATH, sizeof(serv_addr.sun_path) - 1);
+
+    // Bind the socket
+    if (bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1) {
+        perror("bind");
+        exit(EXIT_FAILURE);
+    }
+
+    // Listen for incoming connections
+    if (listen(sockfd, 5) == -1) {
+        perror("listen");
+        exit(EXIT_FAILURE);
+    }
+
+    fprintf(stdout, "Server waiting for connections...\n");
+    fflush(stdout);
+
+    while (1) {
+        // Accept a connection
+        clilen = sizeof(cli_addr);
+        new_sockfd = accept(sockfd, (struct sockaddr*)&cli_addr, &clilen);
+        if (new_sockfd == -1) {
+            perror("accept");
+            exit(EXIT_FAILURE);
+        }
+
+        // Create a thread to handle the client
+        if (pthread_create(&thread_id, NULL, handle_client, (void *)&new_sockfd) != 0) {
+            perror("pthread_create");
+            exit(EXIT_FAILURE);
+        }
+
+        // Detach the thread to allow it to clean up automatically
+        pthread_detach(thread_id);
+    }
+
+    // Close the server socket (this part may not be reached due to the infinite loop)
+    close(sockfd);
+
+    return NULL;
+
+}
+
+void* handle_client(void *arg)
+{
+    int client_fd = *((int *)arg);
+    char buffer[256];
+
+    ssize_t bytesRead = read(client_fd, buffer, sizeof(buffer) - 1);
+    if (bytesRead == -1) {
+        perror("read");
+        exit(EXIT_FAILURE);
+    }
+
+    buffer[bytesRead] = '\0';  // Null-terminate the received data
+    printf("Server received: %s\n", buffer);
+
+    // Close the client socket
+    close(client_fd);
+
+    return NULL;
 }
