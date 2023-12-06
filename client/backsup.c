@@ -19,7 +19,14 @@
 #include <sys/un.h>
 #include <pthread.h>
 
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <unistd.h>
 
+#include "../../utils/utils.h"
+#include "../../utils/json.h"
 
 #define SOCK_PATH "/tmp/mysocket"
 
@@ -48,7 +55,10 @@ struct Setting{
 
 }typedef Setting;
 
-void *manager_thread(void *param);
+struct Connection{
+    char ip[16];
+    char port[6];
+}typedef Connection_t;
 
 void create_child_proccess(const char *filename);
 
@@ -76,25 +86,45 @@ void _erase_front_spaces(char** string);
 
 char* analise_config(const char *filename);
 
-void* create_thread_comm();
+void* communicate_fsup(void *arg);
 
 void* handle_client(void *arg);
 
+void* communicate_manager(void *arg);
 
-int main()
+
+int main(int argc, char* argv[])
 {
-    pthread_t thread_id;
-    if (pthread_create(&thread_id, NULL, create_thread_comm, (void *)NULL) != 0) {
-            perror("pthread_create");
-            exit(EXIT_FAILURE);
-        }
+    pthread_t thread_id[2];
+    if (pthread_create(&thread_id[0], NULL, communicate_fsup, (void *)NULL) != 0) {
+        perror("pthread_create");
+        exit(EXIT_FAILURE);
+    }
 
-    // Add this line to wait for the created thread to finish
-    if (pthread_join(thread_id, NULL) != 0) {
+    printf("Created thread 1\n");
+
+    Connection_t *conn_param=(Connection_t*)malloc(sizeof(Connection_t));
+    strcpy(conn_param->ip,argv[1]);
+    strcpy(conn_param->port,argv[2]);
+
+    if (pthread_create(&thread_id[1], NULL, communicate_manager, (void *)conn_param) != 0) {
+        perror("pthread_create");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Created thread 2\n");
+
+    if (pthread_join(thread_id[0], NULL) != 0) {
         perror("pthread_join");
         exit(EXIT_FAILURE);
     }
 
+    printf("Exited thread!\n");
+
+    if (pthread_join(thread_id[1], NULL) != 0) {
+        perror("pthread_join");
+        exit(EXIT_FAILURE);
+    }
 
     //create_child_proccess("test1.conf");
 
@@ -438,8 +468,10 @@ char* analise_config(const char *filename)
     return path_to_exec;
 }
 
-void* create_thread_comm()
+void* communicate_fsup(void *arg)
 {
+    printf("In comm with fsup\n");
+
     int sockfd, new_sockfd;
     socklen_t clilen;
     struct sockaddr_un serv_addr, cli_addr;
@@ -511,8 +543,51 @@ void* handle_client(void *arg)
     buffer[bytesRead] = '\0';  // Null-terminate the received data
     printf("Server received: %s\n", buffer);
 
+    strcpy(buffer,"Bidirectional comm achieved!\n");
+
+    bytesRead = write(client_fd, buffer, strlen(buffer) - 1);
+    if (bytesRead == -1) {
+        perror("write");
+        exit(EXIT_FAILURE);
+    }
+
     // Close the client socket
     close(client_fd);
 
     return NULL;
+}
+
+void* communicate_manager(void *arg)
+{
+    int conn_fd;
+    Connection_t* conn_param = (Connection_t*)arg;
+
+    __uint16_t port = 0;
+    int rc = sscanf(conn_param->port, "%hu", &port);
+    DIE(rc != 1, "invalid port");
+
+    conn_fd = socket(AF_INET, SOCK_STREAM, 0);
+    DIE(conn_fd < 0, "socket()");
+
+    struct sockaddr_in serv_addr;
+    socklen_t socket_len = sizeof(struct sockaddr_in);
+
+    int enable = 1;
+    if(setsockopt(conn_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
+        perror("setsockopt(SO_REUSEADDR) failed");
+    }
+
+    memset(&serv_addr, 0, socket_len);
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(port);
+
+    //TODO: uncommend, jurnalizare, rese conditions, mutes pt scrierea in fisier
+    
+    /* rc = inet_pton(AF_INET, conn_param->ip, &serv_addr.sin_addr.s_addr);
+    DIE(rc <= 0, "inet_pton");
+
+    rc = connect(conn_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    DIE(rc < 0, "connect()");
+
+    printf("Connected to the manager...\n"); */
 }
