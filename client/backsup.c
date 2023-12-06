@@ -25,8 +25,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-#include "../../utils/utils.h"
-#include "../../utils/json.h"
+#include "../utils/utils.h"
+#include "../utils/json.h"
 
 #define SOCK_PATH "/tmp/mysocket"
 
