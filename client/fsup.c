@@ -18,13 +18,82 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <pthread.h>
+#include <dirent.h>
 
 #define SOCK_PATH "/tmp/mysocket"
 
+#define MAX_PATH_LENGTH 256
+#define MAX_WORD_LENGTH 50
+
+char *get_conf_file(const char* directory_path, const char* target_word);
+
+void connect_to_backsup();
 
 int main()
 {
-    int sockfd;
+    char *file;
+    file=get_conf_file("../configure","test");
+
+    printf("%s\n",file);
+
+    return 0;
+}
+
+char *get_conf_file(const char* directory_path, const char* target_word)
+{
+	DIR *dir;
+    struct dirent *entry;
+    FILE *file;
+    char file_path[MAX_PATH_LENGTH];
+    char buffer[MAX_WORD_LENGTH];
+
+    // Open the directory
+    if ((dir = opendir(directory_path)) == NULL) {
+        perror("opendir");
+        return NULL;
+    }
+
+    // Iterate over entries in the directory
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip "." and ".." entries
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        // Construct the full path of the file
+        snprintf(file_path, MAX_PATH_LENGTH, "%s/%s", directory_path, entry->d_name);
+
+        // Open the file
+        if ((file = fopen(file_path, "r")) == NULL) {
+            perror("fopen");
+            continue; // Skip to the next file if unable to open
+        }
+
+        // Read the file line by line
+        if (fgets(buffer, MAX_WORD_LENGTH, file) != NULL) {
+            // Check if the target word is in the line
+            if (strstr(buffer, target_word) != NULL) {
+                // Close the file and directory
+                fclose(file);
+                closedir(dir);
+                return strdup(file_path);  // Return a duplicate of the file path
+            }
+        }
+
+        // Close the file
+        fclose(file);
+    }
+
+    // Close the directory
+    closedir(dir);
+
+    // If no match found, return NULL
+    return NULL;
+}
+
+void connect_to_backsup()
+{
+        int sockfd;
     char buffer[256];
     struct sockaddr_un serv_addr;
 
@@ -75,9 +144,4 @@ int main()
 
     // Close the socket
     close(sockfd);
-
-    return 0;
-
-    return 0;
 }
-
