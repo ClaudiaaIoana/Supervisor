@@ -583,11 +583,11 @@ void* communicate_manager(void *arg)
 
     //TODO: uncommend, jurnalizare, rese conditions, mutes pt scrierea in fisier
     
-    /* rc = inet_pton(AF_INET, conn_param->ip, &serv_addr.sin_addr.s_addr);
+    rc = inet_pton(AF_INET, conn_param->ip, &serv_addr.sin_addr.s_addr);
     DIE(rc <= 0, "inet_pton");
 
     rc = connect(conn_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
     DIE(rc < 0, "connect()");
 
-    printf("Connected to the manager...\n"); */
+    printf("Connected to the manager...\n");
 }
