@@ -34,7 +34,45 @@ int main()
     char *file;
     file=get_conf_file("../configure","test");
 
-    printf("%s\n",file);
+//input
+    char *terminal_in = ttyname(0);
+
+//OUTPUT
+    char* terminal_out = ttyname(1);
+
+     uid_t uid = geteuid();
+
+    // Get the password entry for the user ID
+    struct passwd *pw = getpwuid(uid);
+    char owner[50];
+    strcpy(owner, pw->pw_name);
+
+     gid_t gid = getgid();
+
+    // Get the group entry for the group ID
+    struct group *grp = getgrgid(gid);
+    char gowner[50];
+    strcpy(gowner, grp->gr_name);
+
+    int pid = getppid();
+    char pid_s[10];
+    sprintf(pid_s, "%d", pid);
+
+    char to_send[250];
+
+    strcpy(to_send,file);
+    strcat(to_send," ");
+    strcat(to_send,pid_s);
+    strcat(to_send," ");
+    strcat(to_send,owner);
+    strcat(to_send," ");
+    strcat(to_send,gowner);
+    strcat(to_send," ");
+    strcat(to_send,terminal_in);
+    strcat(to_send," ");
+    strcat(to_send,terminal_out);
+
+    printf("String to send:\n%s\n",to_send);
 
     return 0;
 }

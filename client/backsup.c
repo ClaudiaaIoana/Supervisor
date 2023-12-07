@@ -40,14 +40,15 @@
 #define FD_STDERR 2
 
 //key words
-#define W_DIR       0
-#define W_STDIN     1
-#define W_STDOUT    2
-#define W_STDERR    3
-#define W_PRIORITY  4
-#define W_UMASK     5
-#define W_GOWNER    6
-#define W_OWNER     7
+#define W_NUMBER    8
+#define W_DIR       1
+#define W_STDIN     2
+#define W_STDOUT    3
+#define W_STDERR    4
+#define W_PRIORITY  5
+#define W_UMASK     6
+#define W_GOWNER    7
+#define W_OWNER     8
 
 struct Setting{
     int     set_w;
@@ -84,7 +85,7 @@ int compare_settings(const void *a, const void *b);
 
 void _erase_front_spaces(char** string);
 
-char* analise_config(const char *filename);
+char* analise_config(const char *filename, Setting *settings);
 
 void* communicate_fsup(void *arg);
 
@@ -166,7 +167,7 @@ void create_child_proccess(const char *filename)
 
         char    *exec_name;
 
-        exec_name=analise_config(filename);
+        //exec_name=analise_config(filename);
 
         execl(exec_name, (const char*)exec_name, (char*)NULL);
         exit(EXIT_SUCCESS);
@@ -204,7 +205,7 @@ void launch_group(const char *filename)
 
         char    *exec_name;
 
-        exec_name=analise_config(filename);
+        //exec_name=analise_config(filename);
 
         execl(exec_name, (const char*)exec_name, (char*)NULL);
         exit(EXIT_SUCCESS);
@@ -359,7 +360,7 @@ void _erase_front_spaces(char** string)
     }
 }
 
-char* analise_config(const char *filename)
+char* analise_config(const char *filename, Setting *settings)
 {
     FILE    *file;
     int     n;
@@ -372,7 +373,7 @@ char* analise_config(const char *filename)
 
     n=get_line(file);
 
-    settings=(Setting*)calloc(n-2,sizeof(Setting));
+    //settings=(Setting*)calloc(n-2,sizeof(Setting));
 
     fgets(line,64,file);
     fgets(line,64,file);
@@ -386,13 +387,16 @@ char* analise_config(const char *filename)
 
         fgets(line,64,file);
         word=strtok(line,": ");
-        settings[i].set_w=key_word(word);
-        if(settings[i].set_w==-1)
+
+        int key=key_word(word);
+
+        if(key==-1)
         {
             printf("Incorect key owrd\n");
             i--;
             n--;
         }
+        settings[key].set_w=key;
         word=strtok(NULL,"\n");
         strcpy(settings[i].parameters,word);
     }
