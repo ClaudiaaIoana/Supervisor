@@ -32,9 +32,49 @@ void connect_to_backsup();
 int main()
 {
     char *file;
-    file=get_conf_file("../configure","test");
+    file=get_conf_file("../configure","test2");
 
-    printf("%s\n",file);
+    //input
+    char *terminal_in = ttyname(0);
+
+    //OUTPUT
+    char* terminal_out = ttyname(1);
+
+     uid_t uid = geteuid();
+
+    // Get the password entry for the user ID
+    struct passwd *pw = getpwuid(uid);
+    char owner[50];
+    strcpy(owner, pw->pw_name);
+
+     gid_t gid = getgid();
+
+    // Get the group entry for the group ID
+    struct group *grp = getgrgid(gid);
+    char gowner[50];
+    strcpy(gowner, grp->gr_name);
+
+    int pid = getppid();
+    char pid_s[10];
+    sprintf(pid_s, "%d", pid);
+
+    char to_send[250];
+
+    strcpy(to_send,file);
+    /* strcat(to_send," ");
+    strcat(to_send,pid_s); */
+    strcat(to_send," ");
+    strcat(to_send,owner);
+    strcat(to_send," ");
+    strcat(to_send,gowner);
+    strcat(to_send," ");
+    strcat(to_send,terminal_in);
+    strcat(to_send," ");
+    strcat(to_send,terminal_out);
+
+    printf("String to send:\n%s\n",to_send);
+
+    connect_to_backsup(to_send);
 
     return 0;
 }
@@ -91,7 +131,7 @@ char *get_conf_file(const char* directory_path, const char* target_word)
     return NULL;
 }
 
-void connect_to_backsup()
+void connect_to_backsup(char* message)
 {
         int sockfd;
     char buffer[256];
@@ -115,7 +155,6 @@ void connect_to_backsup()
     }
 
     // Send data to the server
-	char *message = "Hello, server!";
     ssize_t bytesSent = write(sockfd, message, strlen(message));
     if (bytesSent == -1) {
         perror("write");
@@ -129,18 +168,6 @@ void connect_to_backsup()
         exit(EXIT_FAILURE);
     }
     printf("%s\n",buffer);
-
-		message = "Hello, server! 0";
-    for(int i=0;i<5;i++)
-    {
-		sleep(1);
-		ssize_t bytesSent = write(sockfd, message, strlen(message));
-		if (bytesSent == -1) {
-			perror("write");
-			exit(EXIT_FAILURE);
-		}
-		message[strlen(message)-1]+=i;
-    }
 
     // Close the socket
     close(sockfd);

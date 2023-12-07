@@ -40,14 +40,15 @@
 #define FD_STDERR 2
 
 //key words
-#define W_DIR       0
-#define W_STDIN     1
-#define W_STDOUT    2
-#define W_STDERR    3
-#define W_PRIORITY  4
-#define W_UMASK     5
-#define W_GOWNER    6
-#define W_OWNER     7
+#define W_NUMBER    8
+#define W_DIR       1
+#define W_STDIN     2
+#define W_STDOUT    3
+#define W_STDERR    4
+#define W_PRIORITY  5
+#define W_UMASK     6
+#define W_GOWNER    7
+#define W_OWNER     8
 
 struct Setting{
     int     set_w;
@@ -60,7 +61,7 @@ struct Connection{
     char port[6];
 }typedef Connection_t;
 
-void create_child_proccess(const char *filename);
+void create_child_proccess(const char *filename, Setting *settings);
 
 void launch_group(const char *filename);
 
@@ -84,7 +85,9 @@ int compare_settings(const void *a, const void *b);
 
 void _erase_front_spaces(char** string);
 
-char* analise_config(const char *filename);
+void set_initial_conf(Setting *settings, char *line);
+
+char* analise_config(const char *filename, Setting *settings);
 
 void* communicate_fsup(void *arg);
 
@@ -152,7 +155,7 @@ int main(int argc, char* argv[])
 /////////////////////////////
 
 // Create the child procces, modify the parameters and lounch the executable
-void create_child_proccess(const char *filename)
+void create_child_proccess(const char *filename, Setting *settings)
 {
     pid_t pid;
     pid = fork();
@@ -166,7 +169,7 @@ void create_child_proccess(const char *filename)
 
         char    *exec_name;
 
-        exec_name=analise_config(filename);
+        exec_name=analise_config(filename,settings);
 
         execl(exec_name, (const char*)exec_name, (char*)NULL);
         exit(EXIT_SUCCESS);
@@ -204,7 +207,7 @@ void launch_group(const char *filename)
 
         char    *exec_name;
 
-        exec_name=analise_config(filename);
+        //exec_name=analise_config(filename);
 
         execl(exec_name, (const char*)exec_name, (char*)NULL);
         exit(EXIT_SUCCESS);
@@ -359,20 +362,43 @@ void _erase_front_spaces(char** string)
     }
 }
 
-char* analise_config(const char *filename)
+void set_initial_conf(Setting * settings, char *line)
+{
+    char    copy[250];
+    char    *p;
+
+    strcpy(copy,line);
+    p=strtok(copy," ");
+    p=strtok(NULL," ");
+
+    settings[W_OWNER-1].set_w=W_OWNER;
+    strcpy(settings[W_OWNER-1].parameters,p);
+
+    p=strtok(NULL," ");
+    settings[W_GOWNER-1].set_w=W_GOWNER;
+    strcpy(settings[W_GOWNER-1].parameters,p);
+
+    p=strtok(NULL," ");
+    settings[W_STDIN-1].set_w=W_STDIN;
+    strcpy(settings[W_STDIN-1].parameters,p);
+
+    p=strtok(NULL," ");
+    settings[W_STDOUT-1].set_w=W_STDOUT;
+    strcpy(settings[W_STDOUT-1].parameters,p);
+
+}
+
+char* analise_config(const char *filename, Setting *settings)
 {
     FILE    *file;
     int     n;
     char    line[64];
     char    *word;
     char    *path_to_exec;
-    Setting *settings;
 
     file=fopen(filename, "r");
 
     n=get_line(file);
-
-    settings=(Setting*)calloc(n-2,sizeof(Setting));
 
     fgets(line,64,file);
     fgets(line,64,file);
@@ -386,21 +412,24 @@ char* analise_config(const char *filename)
 
         fgets(line,64,file);
         word=strtok(line,": ");
-        settings[i].set_w=key_word(word);
-        if(settings[i].set_w==-1)
+
+        int key=key_word(word);
+
+        if(key==-1)
         {
             printf("Incorect key owrd\n");
-            i--;
-            n--;
+            continue;
         }
+        settings[key-1].set_w=key;
         word=strtok(NULL,"\n");
-        strcpy(settings[i].parameters,word);
+        strcpy(settings[key-1].parameters,word);
     }
 
-    qsort(settings, n-2, sizeof(Setting), compare_settings);
+    //qsort(settings, W_NUMBER, sizeof(Setting), compare_settings);
 
-    for(int i=0;i<n-2;i++)
+    for(int i=0;i<W_NUMBER;i++)
     {
+        printf("%d - %d\t%s\t\n",i,settings[i].set_w,settings[i].parameters);
         char *copy=(char*)malloc((strlen(settings[i].parameters)+1)*sizeof(char));
         switch (settings[i].set_w)
         {
@@ -463,6 +492,7 @@ char* analise_config(const char *filename)
         default:
             break;
         }
+
     }
 
     return path_to_exec;
@@ -531,8 +561,9 @@ void* communicate_fsup(void *arg)
 
 void* handle_client(void *arg)
 {
-    int client_fd = *((int *)arg);
-    char buffer[256];
+    int     client_fd = *((int *)arg);
+    char    buffer[250];
+    char    *file;
 
     ssize_t bytesRead = read(client_fd, buffer, sizeof(buffer) - 1);
     if (bytesRead == -1) {
@@ -543,13 +574,17 @@ void* handle_client(void *arg)
     buffer[bytesRead] = '\0';  // Null-terminate the received data
     printf("Server received: %s\n", buffer);
 
-    strcpy(buffer,"Bidirectional comm achieved!\n");
+    Setting     *settings = (Setting*)calloc(W_NUMBER,sizeof(Setting));
+    set_initial_conf(settings, buffer);
+    file=strtok(buffer," ");
+    create_child_proccess(file, settings);
 
-    bytesRead = write(client_fd, buffer, strlen(buffer) - 1);
+
+    /* bytesRead = write(client_fd, buffer, strlen(buffer) - 1);
     if (bytesRead == -1) {
         perror("write");
         exit(EXIT_FAILURE);
-    }
+    } */
 
     // Close the client socket
     close(client_fd);
@@ -583,11 +618,11 @@ void* communicate_manager(void *arg)
 
     //TODO: uncommend, jurnalizare, rese conditions, mutes pt scrierea in fisier
     
-    rc = inet_pton(AF_INET, conn_param->ip, &serv_addr.sin_addr.s_addr);
+    /* rc = inet_pton(AF_INET, conn_param->ip, &serv_addr.sin_addr.s_addr);
     DIE(rc <= 0, "inet_pton");
 
     rc = connect(conn_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
     DIE(rc < 0, "connect()");
 
-    printf("Connected to the manager...\n");
+    printf("Connected to the manager...\n"); */
 }
