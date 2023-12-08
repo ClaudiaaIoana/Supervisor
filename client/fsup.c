@@ -32,7 +32,7 @@ void connect_to_backsup();
 int main()
 {
     char *file;
-    file=get_conf_file("../configure","test2");
+    file=get_conf_file("../configure","test");
 
     //input
     char *terminal_in = ttyname(0);
@@ -61,8 +61,8 @@ int main()
     char to_send[250];
 
     strcpy(to_send,file);
-    /* strcat(to_send," ");
-    strcat(to_send,pid_s); */
+    strcat(to_send," ");
+    strcat(to_send,pid_s);
     strcat(to_send," ");
     strcat(to_send,owner);
     strcat(to_send," ");
@@ -75,6 +75,8 @@ int main()
     printf("String to send:\n%s\n",to_send);
 
     connect_to_backsup(to_send);
+
+    usleep(100000);
 
     return 0;
 }
@@ -160,14 +162,6 @@ void connect_to_backsup(char* message)
         perror("write");
         exit(EXIT_FAILURE);
     }
-
-    //get data from server
-    int bytesRead = read(sockfd, buffer, sizeof(buffer) - 1);
-    if (bytesRead == -1) {
-        perror("read");
-        exit(EXIT_FAILURE);
-    }
-    printf("%s\n",buffer);
 
     // Close the socket
     close(sockfd);
