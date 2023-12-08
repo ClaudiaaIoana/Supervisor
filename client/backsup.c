@@ -18,6 +18,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -29,6 +30,7 @@
 #include "../utils/json.h"
 
 #define SOCK_PATH "/tmp/mysocket"
+int sockfd_fsup_comm;
 
 // when working with pipes
 #define READ_END 0
@@ -61,7 +63,8 @@ struct Connection{
     char port[6];
 }typedef Connection_t;
 
-void create_child_proccess(const char *filename, Setting *settings);
+int main(int argc, char * argv[]);
+int create_child_proccess(const char *filename, Setting *settings, bool *flag);
 
 void launch_group(const char *filename);
 
@@ -87,7 +90,7 @@ void _erase_front_spaces(char** string);
 
 void set_initial_conf(Setting *settings, char *line);
 
-char* analise_config(const char *filename, Setting *settings);
+char* analise_config(const char *filename, Setting *settings, bool *flag);
 
 void* communicate_fsup(void *arg);
 
@@ -95,9 +98,21 @@ void* handle_client(void *arg);
 
 void* communicate_manager(void *arg);
 
+void handle_forced_exit(int signum);
+
 
 int main(int argc, char* argv[])
 {
+    struct sigaction sa;
+	memset(&sa, 0, sizeof(sa));
+ 
+	printf("Process %d started.\n", getpid());
+ 
+	sa.sa_flags = SA_RESETHAND;
+	sa.sa_handler = handle_forced_exit;
+	sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+
     pthread_t thread_id[2];
     if (pthread_create(&thread_id[0], NULL, communicate_fsup, (void *)NULL) != 0) {
         perror("pthread_create");
@@ -155,7 +170,7 @@ int main(int argc, char* argv[])
 /////////////////////////////
 
 // Create the child procces, modify the parameters and lounch the executable
-void create_child_proccess(const char *filename, Setting *settings)
+int create_child_proccess(const char *filename, Setting *settings, bool *flag)
 {
     pid_t pid;
     pid = fork();
@@ -169,7 +184,7 @@ void create_child_proccess(const char *filename, Setting *settings)
 
         char    *exec_name;
 
-        exec_name=analise_config(filename,settings);
+        exec_name=analise_config(filename,settings,flag);
 
         execl(exec_name, (const char*)exec_name, (char*)NULL);
         exit(EXIT_SUCCESS);
@@ -177,6 +192,7 @@ void create_child_proccess(const char *filename, Setting *settings)
     if (pid > 0)
     {
         printf("Parent proccess PID %d\n", getpid());
+        return pid;
     }
 }
 
@@ -371,6 +387,13 @@ void set_initial_conf(Setting * settings, char *line)
     p=strtok(copy," ");
     p=strtok(NULL," ");
 
+    pid_t pid = atoi(p);
+    if (kill(pid, SIGSTOP) == -1) {
+        perror("kill");
+    }
+
+    p=strtok(NULL," ");
+
     settings[W_OWNER-1].set_w=W_OWNER;
     strcpy(settings[W_OWNER-1].parameters,p);
 
@@ -388,7 +411,7 @@ void set_initial_conf(Setting * settings, char *line)
 
 }
 
-char* analise_config(const char *filename, Setting *settings)
+char* analise_config(const char *filename, Setting *settings, bool *flag)
 {
     FILE    *file;
     int     n;
@@ -429,18 +452,20 @@ char* analise_config(const char *filename, Setting *settings)
 
     for(int i=0;i<W_NUMBER;i++)
     {
-        printf("%d - %d\t%s\t\n",i,settings[i].set_w,settings[i].parameters);
         char *copy=(char*)malloc((strlen(settings[i].parameters)+1)*sizeof(char));
         switch (settings[i].set_w)
         {
         case W_STDIN:
             redirect(settings[i].parameters,STDIN_FILENO);
+            (*flag)=true;
             break;
         case W_STDOUT:
             redirect(settings[i].parameters,STDOUT_FILENO);
+            (*flag)=true;
             break;
         case W_STDERR:
             redirect(settings[i].parameters,STDERR_FILENO);
+            (*flag)=true;
             break;
         case W_DIR:
             strcpy(copy,settings[i].parameters);
@@ -502,15 +527,23 @@ void* communicate_fsup(void *arg)
 {
     printf("In comm with fsup\n");
 
-    int sockfd, new_sockfd;
+    int new_sockfd;
     socklen_t clilen;
     struct sockaddr_un serv_addr, cli_addr;
     pthread_t thread_id;
 
     // Create a socket
-    sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (sockfd == -1) {
+    sockfd_fsup_comm = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sockfd_fsup_comm == -1) {
         perror("socket");
+        exit(EXIT_FAILURE);
+    }
+
+    int enable = 1;
+
+    if (setsockopt(sockfd_fsup_comm, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
+        perror("setsockopt(SO_REUSEADDR) failed");
+        close(sockfd_fsup_comm);
         exit(EXIT_FAILURE);
     }
 
@@ -519,14 +552,16 @@ void* communicate_fsup(void *arg)
     strncpy(serv_addr.sun_path, SOCK_PATH, sizeof(serv_addr.sun_path) - 1);
 
     // Bind the socket
-    if (bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1) {
+    if (bind(sockfd_fsup_comm, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) == -1) {
         perror("bind");
+        close(sockfd_fsup_comm);
         exit(EXIT_FAILURE);
     }
 
     // Listen for incoming connections
-    if (listen(sockfd, 5) == -1) {
+    if (listen(sockfd_fsup_comm, 5) == -1) {
         perror("listen");
+        close(sockfd_fsup_comm);
         exit(EXIT_FAILURE);
     }
 
@@ -536,7 +571,7 @@ void* communicate_fsup(void *arg)
     while (1) {
         // Accept a connection
         clilen = sizeof(cli_addr);
-        new_sockfd = accept(sockfd, (struct sockaddr*)&cli_addr, &clilen);
+        new_sockfd = accept(sockfd_fsup_comm, (struct sockaddr*)&cli_addr, &clilen);
         if (new_sockfd == -1) {
             perror("accept");
             exit(EXIT_FAILURE);
@@ -553,7 +588,7 @@ void* communicate_fsup(void *arg)
     }
 
     // Close the server socket (this part may not be reached due to the infinite loop)
-    close(sockfd);
+    close(sockfd_fsup_comm);
 
     return NULL;
 
@@ -564,29 +599,42 @@ void* handle_client(void *arg)
     int     client_fd = *((int *)arg);
     char    buffer[250];
     char    *file;
+    char    *pid_fsup_ch;
+    pid_t   pid_fsup;
+    bool    flag_redir=false;
 
     ssize_t bytesRead = read(client_fd, buffer, sizeof(buffer) - 1);
     if (bytesRead == -1) {
-        perror("read");
+	  perror("read");
         exit(EXIT_FAILURE);
     }
 
-    buffer[bytesRead] = '\0';  // Null-terminate the received data
-    printf("Server received: %s\n", buffer);
+    buffer[bytesRead] = '\0';
 
     Setting     *settings = (Setting*)calloc(W_NUMBER,sizeof(Setting));
+
     set_initial_conf(settings, buffer);
+
     file=strtok(buffer," ");
-    create_child_proccess(file, settings);
+    pid_fsup_ch=strtok(NULL," ");
+    pid_fsup = atoi(pid_fsup_ch);
+    
+    pid_t pid = create_child_proccess(file, settings, &flag_redir);
 
+    if(!flag_redir) {
+        int status;
+        if(waitpid(pid,&status,0) == -1)
+        {
+            perror("waitpid");
+            exit(EXIT_FAILURE);
+        }
+    }
 
-    /* bytesRead = write(client_fd, buffer, strlen(buffer) - 1);
-    if (bytesRead == -1) {
-        perror("write");
-        exit(EXIT_FAILURE);
-    } */
+    if (kill(pid_fsup, SIGCONT) == -1)
+        perror("kill fsup");
 
-    // Close the client socket
+    free(settings);
+
     close(client_fd);
 
     return NULL;
@@ -625,4 +673,11 @@ void* communicate_manager(void *arg)
     DIE(rc < 0, "connect()");
 
     printf("Connected to the manager...\n"); */
+}
+
+void handle_forced_exit(int signum)
+{
+    close(sockfd_fsup_comm);
+    remove(SOCK_PATH);
+    exit(0);
 }
