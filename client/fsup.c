@@ -29,10 +29,15 @@ char *get_conf_file(const char* directory_path, const char* target_word);
 
 void connect_to_backsup();
 
-int main()
+int main(int argc, char* argv[])
 {
+    if(argc<2)
+    {
+        printf("Not enough arguments!\n");
+        exit(-1);
+    }
     char *file;
-    file=get_conf_file("../configure","test");
+    file=get_conf_file("../configure",argv[1]);
 
     //input
     char *terminal_in = ttyname(0);
@@ -71,8 +76,6 @@ int main()
     strcat(to_send,terminal_in);
     strcat(to_send," ");
     strcat(to_send,terminal_out);
-
-    printf("String to send:\n%s\n",to_send);
 
     connect_to_backsup(to_send);
 
@@ -121,7 +124,6 @@ char *get_conf_file(const char* directory_path, const char* target_word)
                 return strdup(file_path);  // Return a duplicate of the file path
             }
         }
-
         // Close the file
         fclose(file);
     }

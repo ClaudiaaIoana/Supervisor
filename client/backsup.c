@@ -106,8 +106,6 @@ int main(int argc, char* argv[])
     struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
  
-	printf("Process %d started.\n", getpid());
- 
 	sa.sa_flags = SA_RESETHAND;
 	sa.sa_handler = handle_forced_exit;
 	sigaction(SIGINT, &sa, NULL);
@@ -142,24 +140,6 @@ int main(int argc, char* argv[])
     if (pthread_join(thread_id[1], NULL) != 0) {
         perror("pthread_join");
         exit(EXIT_FAILURE);
-    }
-
-    //create_child_proccess("test1.conf");
-
-    int status;
-    pid_t wpid;
-
-    // Wait for all child processes to finish
-    while ((wpid = wait(&status)) > 0)
-    {
-        if (WIFEXITED(status))
-        {
-            printf("Child process %d (PID: %d) exited with status %d\n", wpid, getpid(), WEXITSTATUS(status));
-        }
-        else
-        {
-            printf("Child process %d (PID: %d) terminated abnormally\n", wpid, getpid());
-        }
     }
 
     return 0;

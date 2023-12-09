@@ -17,3 +17,17 @@ Effective Group ID: 1000
 Process priority: 4
 Current working directory: /home/claudia/Documents/Supervisor/client
 Current mask : 24
+BUFFER: content ??Real User ID: 1000
+Real Group ID: 1000
+Effective User ID: 1000
+Effective Group ID: 1000
+Process priority: 4
+Current working directory: /home/claudia/Documents/Supervisor/client
+Current mask : 24
+BUFFER: content ??Real User ID: 1000
+Real Group ID: 1000
+Effective User ID: 1000
+Effective Group ID: 1000
+Process priority: 4
+Current working directory: /home/claudia/Documents/Supervisor/client
+Current mask : 24
