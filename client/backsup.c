@@ -27,8 +27,8 @@
 #include <unistd.h>
 #include <dirent.h>
 
-#include "../../utils/utils.h"
-#include "../../utils/json.h"
+#include "../utils/utils.h"
+#include "../utils/json.h"
 
 #define SOCK_PATH "/tmp/mysocket"
 int sockfd_fsup_comm;
