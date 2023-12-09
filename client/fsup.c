@@ -21,6 +21,7 @@
 #include <dirent.h>
 
 #define SOCK_PATH "/tmp/mysocket"
+#define CONF_PATH "../configure"
 
 #define MAX_PATH_LENGTH 256
 #define MAX_WORD_LENGTH 50
@@ -37,7 +38,7 @@ int main(int argc, char* argv[])
         exit(-1);
     }
     char *file;
-    file=get_conf_file("../configure",argv[1]);
+    file=get_conf_file(CONF_PATH,argv[1]);
 
     //input
     char *terminal_in = ttyname(0);
