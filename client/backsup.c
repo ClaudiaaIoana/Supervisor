@@ -25,12 +25,17 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #include "../../utils/utils.h"
 #include "../../utils/json.h"
 
 #define SOCK_PATH "/tmp/mysocket"
 int sockfd_fsup_comm;
+
+#define MAX_PATH_LENGTH 256
+#define MAX_WORD_LENGTH 50
+#define CONF_PATH "../configure"
 
 // when working with pipes
 #define READ_END 0
@@ -63,8 +68,8 @@ struct Connection{
     char port[6];
 }typedef Connection_t;
 
-int main(int argc, char * argv[]);
-int create_child_proccess(const char *filename, Setting *settings, bool *flag);
+
+int create_child_proccess(char *exec_name, Setting *settings);
 
 void launch_group(const char *filename);
 
@@ -90,7 +95,11 @@ void _erase_front_spaces(char** string);
 
 void set_initial_conf(Setting *settings, char *line);
 
-char* analise_config(const char *filename, Setting *settings, bool *flag);
+char* analise_config(char *filename, Setting *settings, bool *flag);
+
+char *get_conf_file(char* directory_path, const char* target_word);
+
+void apply_settings(Setting *settings);
 
 void* communicate_fsup(void *arg);
 
@@ -150,7 +159,7 @@ int main(int argc, char* argv[])
 /////////////////////////////
 
 // Create the child procces, modify the parameters and lounch the executable
-int create_child_proccess(const char *filename, Setting *settings, bool *flag)
+int create_child_proccess(char *exec_name, Setting *settings)
 {
     pid_t pid;
     pid = fork();
@@ -162,9 +171,7 @@ int create_child_proccess(const char *filename, Setting *settings, bool *flag)
     {
         printf("Child proccess PID %d\n", getpid());
 
-        char    *exec_name;
-
-        exec_name=analise_config(filename,settings,flag);
+        apply_settings(settings);
 
         execl(exec_name, (const char*)exec_name, (char*)NULL);
         exit(EXIT_SUCCESS);
@@ -391,45 +398,113 @@ void set_initial_conf(Setting * settings, char *line)
 
 }
 
-char* analise_config(const char *filename, Setting *settings, bool *flag)
+char* analise_config(char *filename, Setting *settings, bool *flag)
 {
     FILE    *file;
     int     n;
-    char    line[64];
+    int     read_lines = 0;
+    char    line[250];
     char    *word;
-    char    *path_to_exec;
+    char    *path_to_exec=NULL;
+
 
     file=fopen(filename, "r");
 
     n=get_line(file);
 
-    fgets(line,64,file);
-    fgets(line,64,file);
+    fgets(line,250,file); 
 
-    path_to_exec=(char*)malloc(strlen(line)*sizeof(char));
-    strcpy(path_to_exec,strtok(line,"\n"));
- /*  TODO:
-    //verify program/group/include
- */
-    for(int i=0;i<n-2;i++) {
+    if(strstr(line,"[program:")!=NULL)
+    {
+        fgets(line,250,file);
+        path_to_exec=(char*)malloc(strlen(line)*sizeof(char));
+        strcpy(path_to_exec,strtok(line,"\n"));
+        read_lines=2;
+    } else 
+    if(strstr(line,"[group:")!=NULL)
+    {
+        fgets(line,250,file);
+        fgets(line,250,file);
+        read_lines=3;
+    }
 
-        fgets(line,64,file);
+    for(int i=0;i<n-read_lines;i++) {
+        
+        fgets(line,250,file);
         word=strtok(line,": ");
 
         int key=key_word(word);
 
         if(key==-1)
         {
-            printf("Incorect key owrd\n");
+            printf("Incorect key word: %s\n", word);
             continue;
+        }else 
+        if(key == W_STDIN || key == W_STDOUT || key == W_STDERR)
+        {
+            (*flag)=true;
         }
         settings[key-1].set_w=key;
         word=strtok(NULL,"\n");
         strcpy(settings[key-1].parameters,word);
     }
+    return path_to_exec;
+}
 
-    //qsort(settings, W_NUMBER, sizeof(Setting), compare_settings);
+char *get_conf_file(char* directory_path, const char* target_word)
+{
+	DIR *dir;
+    struct dirent *entry;
+    FILE *file;
+    char file_path[MAX_PATH_LENGTH];
+    char buffer[MAX_WORD_LENGTH];
 
+    // Open the directory
+    if ((dir = opendir(directory_path)) == NULL) {
+        perror("opendir");
+        return NULL;
+    }
+
+    // Iterate over entries in the directory
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip "." and ".." entries
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        // Construct the full path of the file
+        snprintf(file_path, MAX_PATH_LENGTH, "%s/%s", directory_path, entry->d_name);
+
+        // Open the file
+        if ((file = fopen(file_path, "r")) == NULL) {
+            perror("fopen");
+            continue; // Skip to the next file if unable to open
+        }
+
+        // Read the file line by line
+        if (fgets(buffer, MAX_WORD_LENGTH, file) != NULL) {
+            // Check if the target word is in the line
+            if (strstr(buffer, target_word) != NULL) {
+                // Close the file and directory
+                fclose(file);
+                closedir(dir);
+
+                return strdup(file_path);  // Return a duplicate of the file path
+            }
+        }
+        // Close the file
+        fclose(file);
+    }
+
+    // Close the directory
+    closedir(dir);
+
+    // If no match found, return NULL
+    return NULL;
+}
+
+void apply_settings(Setting * settings)
+{
     for(int i=0;i<W_NUMBER;i++)
     {
         char *copy=(char*)malloc((strlen(settings[i].parameters)+1)*sizeof(char));
@@ -437,15 +512,12 @@ char* analise_config(const char *filename, Setting *settings, bool *flag)
         {
         case W_STDIN:
             redirect(settings[i].parameters,STDIN_FILENO);
-            (*flag)=true;
             break;
         case W_STDOUT:
             redirect(settings[i].parameters,STDOUT_FILENO);
-            (*flag)=true;
             break;
         case W_STDERR:
             redirect(settings[i].parameters,STDERR_FILENO);
-            (*flag)=true;
             break;
         case W_DIR:
             strcpy(copy,settings[i].parameters);
@@ -480,8 +552,7 @@ char* analise_config(const char *filename, Setting *settings, bool *flag)
             struct group    *grp_info = getgrnam(settings[i].parameters);
 
             if (grp_info == NULL) {
-                //perror("Error getting group information");
-                return NULL;
+                perror("Error getting group information");
             }
             change_gowner(grp_info->gr_gid);
         case W_OWNER:
@@ -490,7 +561,6 @@ char* analise_config(const char *filename, Setting *settings, bool *flag)
 
             if (pwd_info == NULL) {
                 perror("Error getting user information");
-                return NULL;
             }
             change_owner(pwd_info->pw_uid);
 
@@ -499,14 +569,10 @@ char* analise_config(const char *filename, Setting *settings, bool *flag)
         }
 
     }
-
-    return path_to_exec;
 }
 
 void* communicate_fsup(void *arg)
 {
-    printf("In comm with fsup\n");
-
     int new_sockfd;
     socklen_t clilen;
     struct sockaddr_un serv_addr, cli_addr;
@@ -578,10 +644,15 @@ void* handle_client(void *arg)
 {
     int     client_fd = *((int *)arg);
     char    buffer[250];
-    char    *file;
+    char    file_name[250];
+    char    *p;
     char    *pid_fsup_ch;
+    char    line[250];
+    char    *path_to_exec;
+    pid_t   pid;
     pid_t   pid_fsup;
     bool    flag_redir=false;
+    Setting *settings;
 
     ssize_t bytesRead = read(client_fd, buffer, sizeof(buffer) - 1);
     if (bytesRead == -1) {
@@ -589,17 +660,75 @@ void* handle_client(void *arg)
         exit(EXIT_FAILURE);
     }
 
+
     buffer[bytesRead] = '\0';
+    char    copy[250];
+    strcpy(copy,buffer);
 
-    Setting     *settings = (Setting*)calloc(W_NUMBER,sizeof(Setting));
-
-    set_initial_conf(settings, buffer);
-
-    file=strtok(buffer," ");
+    p=strtok(copy," ");
+    strcpy(file_name,p);
     pid_fsup_ch=strtok(NULL," ");
     pid_fsup = atoi(pid_fsup_ch);
+
+
+    FILE*   file = fopen(file_name,"r");
+
+    fgets(line,250,file);
     
-    pid_t pid = create_child_proccess(file, settings, &flag_redir);
+    if(strstr(line,"[program:")!=NULL)
+    {
+        fclose(file);
+        settings = (Setting *)calloc(W_NUMBER, sizeof(Setting));
+        set_initial_conf(settings, buffer);
+        path_to_exec = analise_config(file_name,settings, &flag_redir);
+        pid = create_child_proccess(path_to_exec, settings);
+        free(path_to_exec);
+        free(settings);
+        
+    } else 
+    if(strstr(line,"[group:")!=NULL)
+    {
+        //printf("In group\n");
+        fgets(line,250,file);
+        
+        int     nr = atoi(line);
+        char    *p;
+        char    **programs = (char**)calloc(nr,sizeof(char*));
+
+        fgets(line,250,file);
+        fclose(file);
+        p=strtok(line, " ");
+
+        for(int i=0;i<nr;i++)
+        {
+            programs[i]=(char*)calloc(strlen(p)+1,sizeof(char));
+            strcpy(programs[i],p);
+            p=strtok(NULL," \n\t");
+        }
+
+        bool    prev_flag = flag_redir;
+
+        for(int i=0; i<nr; i++)
+        {
+            settings = (Setting *)calloc(W_NUMBER, sizeof(Setting));
+
+            strcpy(copy,buffer);
+            set_initial_conf(settings,copy);
+            path_to_exec=analise_config(get_conf_file(CONF_PATH,programs[i]), settings, &flag_redir);
+            analise_config(file_name, settings, &flag_redir);
+            int     current_pid = create_child_proccess(path_to_exec, settings);
+            if(flag_redir == true && prev_flag==false)
+            {
+                pid = current_pid;
+            }
+            prev_flag=flag_redir;
+            free(programs[i]);
+            free(path_to_exec);
+            free(settings);
+        }
+        free(programs);
+    }
+
 
     if(!flag_redir) {
         int status;
@@ -612,8 +741,6 @@ void* handle_client(void *arg)
 
     if (kill(pid_fsup, SIGCONT) == -1)
         perror("kill fsup");
-
-    free(settings);
 
     close(client_fd);
 

@@ -8,9 +8,6 @@ int main() {
     int gid, egid;
     char    buffer[50];
 
-    scanf("%s",buffer);
-    printf("BUFFER: %s ??",buffer);
-
     // Get real user and group IDs
     uid = getuid();
     gid = getgid();
