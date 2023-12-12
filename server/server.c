@@ -144,9 +144,14 @@ void *connection_handler(void *args)
             printf("num_clients: %d\n", connection->num_clients);
             //client->ip_address = inet_ntoa(client_addr.sin_addr));
             pthread_mutex_lock(&mutex_clients);
-            connection->clients[connection->num_clients].fd = conn_fd;
-            connection->clients[connection->num_clients].events = POLLIN | POLLRDHUP;
-            connection->num_clients++;
+            for(int i = 0; i < MAX_CLIENTS; i++) {
+                if(connection->clients[i].fd == 0) {
+                    connection->clients[i].fd = conn_fd;
+                    connection->clients[i].events = POLLIN | POLLRDHUP;
+                    connection->num_clients++;
+                    break;
+                }
+            }
             connection->listen->revents = 0;
             pthread_mutex_unlock(&mutex_clients); 
         }
@@ -156,10 +161,12 @@ void *connection_handler(void *args)
             if(connection->clients[i].fd != 0) {
                 if(connection->clients[i].revents & POLLRDHUP) {
                     printf("client disconnected\n");
+                    pthread_mutex_lock(&mutex_clients);
                     close(connection->clients[i].fd);
                     connection->clients[i].fd = 0;
                     connection->num_clients--;
                     connection->clients[i].revents = 0;
+                    pthread_mutex_unlock(&mutex_clients);
                 }
             }
         }
@@ -174,7 +181,7 @@ void *client_handler(void *args)
         for (size_t i = 0; i < MAX_CLIENTS; i++) {
             if(manager->connection->clients[i].fd != 0) {
                 if(manager->connection->clients[i].revents & POLLIN) {
-                    printf("client %d sent data\n", manager->connection->clients[i].fd);
+                    //printf("client %d sent data\n", manager->connection->clients[i].fd);
                     manager->connection->clients[i].revents = 0;
                     int rc = recv(manager->connection->clients[i].fd, buffer, BUFFER_SIZE, 0);
                     if(rc <= 0) {
@@ -266,7 +273,7 @@ void print_processes(const State *manager) {
 }
 
 void print_clients(const State *manager) {
-    for (size_t i = 0; i < manager->connection->num_clients; i++) {
+    for (size_t i = 0; i < MAX_CLIENTS; i++) {
         if(manager->connection->clients[i].fd != 0) {
             printf("client: <%d>\n", manager->connection->clients[i].fd);
         }
