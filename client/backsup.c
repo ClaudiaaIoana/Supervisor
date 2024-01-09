@@ -74,68 +74,27 @@ struct Connection{
 }typedef Connection_t;
 
 //MUTEX FOR ACCESSING THE PROCS
-pthread_mutex_t mutex;
+pthread_mutex_t mutex_pr;
+
+pthread_mutex_t mutex_log;
+
+FILE* log=NULL;
 
 struct Proc{
     pid_t pid;
     char conf[50];
     struct Proc* next;
+    bool status;
 }typedef Proc_ch;
 
 int num_proc=0;
 Proc_ch *procs=NULL;
 
-void add_proc(pid_t pid, char* conf)
-{
-    pthread_mutex_lock(&mutex);
-    if(!procs)
-    {
-        procs=(Proc_ch*)malloc(sizeof(Proc_ch));
-        procs->pid=pid;
-        strcpy(procs->conf,conf);
-        procs->next=NULL;
-        pthread_mutex_unlock(&mutex);
-        return;
-    }
-    Proc_ch *new=(Proc_ch*)malloc(sizeof(Proc_ch));
-    new->pid=pid;
-    strcpy(new->conf,conf);
-    new->next=procs;
-    procs=new;
-    num_proc++;
-    pthread_mutex_unlock(&mutex);
-}
+void add_proc(pid_t pid, char* conf);
 
-void remove_proc(pid_t pid)
-{
-    pthread_mutex_lock(&mutex);
-    Proc_ch *aux=procs;
-    Proc_ch *prev=NULL;
-    while(aux)
-    {
-        if(aux->pid==pid)
-        {
-            if(!prev)
-            {
-                procs=aux->next;
-                free(aux);
-                num_proc--;
-                pthread_mutex_unlock(&mutex);
-                return;
-            }
-            else{
-                prev->next=aux->next;
-                free(aux);
-                num_proc--;
-                pthread_mutex_unlock(&mutex);
-                return;
-            }
-        }
-        prev=aux;
-        aux=aux->next;
-    }
-    pthread_mutex_unlock(&mutex);
-}
+void remove_proc(pid_t pid);
+
+Proc_ch *get_proc(pid_t pid);
 
 int create_child_proccess(char *exec_name, Setting *settings);
 
@@ -177,7 +136,15 @@ void* communicate_manager(void *arg);
 
 void handle_forced_exit(int signum);
 
+int isProcessAlive(pid_t pid);
+
 pid_t* list_child_processes(int *n);
+
+void write_message_log(char* message);
+
+void write_word(char* word);
+
+char* get_time();
 
 /////////////////////////////////////////// MAIN
 
@@ -185,7 +152,9 @@ int main(int argc, char* argv[])
 {
     struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
-    pthread_mutex_init(&mutex, NULL);
+
+    pthread_mutex_init(&mutex_pr, NULL);
+    pthread_mutex_init(&mutex_log, NULL);
  
 	sa.sa_flags = SA_RESETHAND;
 	sa.sa_handler = handle_forced_exit;
@@ -234,6 +203,7 @@ int main(int argc, char* argv[])
 int create_child_proccess(char *exec_name, Setting *settings)
 {
     pid_t pid;
+    char pid_s[10];
     pid = fork();
     if (pid < 0)
     {
@@ -242,6 +212,13 @@ int create_child_proccess(char *exec_name, Setting *settings)
     if (pid == 0)
     {
         printf("Child proccess PID %d\n", getpid());
+
+        pthread_mutex_lock(&mutex_log);
+            log=fopen("activity.log","a");
+            fprintf(log, "<%s> created child process %d\n", get_time(),getpid());
+            fclose(log);
+            log=NULL;
+        pthread_mutex_unlock(&mutex_log);
 
         apply_settings(settings);
 
@@ -739,7 +716,6 @@ void* handle_client(void *arg)
         exit(EXIT_FAILURE);
     }
 
-    printf("buffer %s\n",buffer);
     buffer[bytesRead] = '\0';
     char    copy[250];
     strcpy(copy,buffer);
@@ -834,7 +810,6 @@ void* handle_client(void *arg)
                 exit(EXIT_FAILURE);
             }
             remove_proc(pid);
-            printf("Ready waint\n");
         }
         
     }
@@ -854,21 +829,139 @@ void* handle_client(void *arg)
 
         int num;
         pid_t *pids=list_child_processes(&num);
-        printf("Output in %s proc %d\n",out,pid_fsup);
+
+        FILE*f=fopen(out,"w");
+
         for(int i=0;i<num;i++)
         {
-            printf("%d\n",pids[i]);
+            fprintf(f,"%d\n",pids[i]);
         }
+
+        fclose(f);
+
+        if (kill(pid_fsup, SIGCONT) == -1)
+            perror("kill fsup");
+
+        free(pids);
+    }else 
+    if(strcmp(p,"det_procs")==0)
+    {
+        char            out[64];
+        char            owner[64];
+        struct passwd   *pw;
+        int num;
+
+        p=strtok(NULL," ");
+        strcpy(out,p);
+        pid_fsup_ch = strtok(NULL," ");
+        pid_fsup = atoi(pid_fsup_ch);
+        p=strtok(NULL," ");
+        strcpy(owner,p);
+
+        if (kill(pid_fsup, SIGSTOP) == -1) 
+            perror("kill");
+
+        pid_t *pids=list_child_processes(&num);
+
+        FILE*f=fopen(out,"w");
+
+        fprintf(f,"PID\tSTATUS\tEXEC\n");
+        for(int i=0;i<num;i++)
+        {
+            fprintf(f,"%d\t",pids[i]);
+             if (get_proc(pids[i])->status)
+                fprintf(f, "R\t");
+            else
+                fprintf(f, "B\t");
+
+            // Print the configuration information for the process
+            Proc_ch *aux = procs;
+            while (aux)
+            {
+                if (aux->pid == pids[i])
+                {
+                    fprintf(f, "%s\n", aux->conf);
+                    break;
+                }
+                aux = aux->next;
+            }
+        }
+
+        fclose(f);
+
+        if (kill(pid_fsup, SIGCONT) == -1)
+            perror("kill fsup");
+
+        free(pids);
+        
+    }
+    else if(strcmp(p,"procs")==0)
+    {
+        char out[64];
+        char owner[64];
+        p=strtok(NULL," ");
+        strcpy(out,p);
+        pid_fsup_ch = strtok(NULL," ");
+        pid_fsup = atoi(pid_fsup_ch);
+        p=strtok(NULL," ");
+        strcpy(owner,p);
+
+        if (kill(pid_fsup, SIGSTOP) == -1) 
+            perror("kill");
+
+        int num;
+        pid_t *pids=list_child_processes(&num);
+
+        FILE*f=fopen(out,"w");
+
+        for(int i=0;i<num;i++)
+        {
+            fprintf(f,"%d\n",pids[i]);
+        }
+
+        fclose(f);
 
         if (kill(pid_fsup, SIGCONT) == -1)
             perror("kill fsup");
 
         free(pids);
     }
+    else if(strcmp(p,"block")==0)
+    {
+        p=strtok(NULL," ");
+        pid_t pid_ch=atoi(p);
+        if (kill(pid_ch, SIGSTOP) == -1) 
+            perror("block");
+        Proc_ch *pr = get_proc(pid_ch);
+        if(pr)
+        {
+            pr->status=false;
+        }
+    }
+    else if(strcmp(p,"continue")==0)
+    {
+        p=strtok(NULL," ");
+        pid_t pid_ch=atoi(p);
+        if (kill(pid_ch, SIGCONT) == -1) 
+            perror("continue");
+        Proc_ch *pr = get_proc(pid_ch);
+        if(pr)
+        {
+            pr->status=true;
+        }
+    }
+    else if(strcmp(p,"kill")==0)
+    {
+        p=strtok(NULL," ");
+        pid_t pid_ch=atoi(p);
+        if (kill(pid_ch, SIGTERM) == -1) 
+            perror("kill");
+    }
 
     close(client_fd);
 
     return NULL;
+
 }
 
 void* communicate_manager(void *arg)
@@ -910,12 +1003,12 @@ void handle_forced_exit(int signum)
 {
     close(sockfd_fsup_comm);
     remove(SOCK_PATH);
-    pthread_mutex_destroy(&mutex);
+    pthread_mutex_destroy(&mutex_pr);
     exit(0);
 }
 
 int isProcessAlive(pid_t pid) {
-    return kill(pid, 0) == 0;
+    return kill(pid, 0) != -1;
 }
 
 pid_t* list_child_processes(int *n) 
@@ -923,17 +1016,16 @@ pid_t* list_child_processes(int *n)
     pid_t pids[100];
     pid_t *_pids;
     int i=0;
-    pthread_mutex_lock(&mutex);
+    pthread_mutex_lock(&mutex_pr);
  
     Proc_ch *aux=procs;
     while(aux)
     {
-        if(isProcessAlive(aux->pid))
-            pids[i++]=aux->pid;
+        pids[i++]=aux->pid;
         aux=aux->next;
     }
     
-    pthread_mutex_unlock(&mutex);
+    pthread_mutex_unlock(&mutex_pr);
     (*n)=i;
     _pids=(pid_t*)malloc(sizeof(pid_t)*i);
     for(i=0;i<(*n);i++)
@@ -942,3 +1034,113 @@ pid_t* list_child_processes(int *n)
     }
     return _pids;
 }
+
+void add_proc(pid_t pid, char* conf)
+{
+    pthread_mutex_lock(&mutex_pr);
+    if(!procs)
+    {
+        procs=(Proc_ch*)malloc(sizeof(Proc_ch));
+        procs->pid=pid;
+        strcpy(procs->conf,conf);
+        procs->next=NULL;
+        procs->status=true;
+        pthread_mutex_unlock(&mutex_pr);
+        return;
+    }
+    Proc_ch *new=(Proc_ch*)malloc(sizeof(Proc_ch));
+    new->pid=pid;
+    strcpy(new->conf,conf);
+    new->next=procs;
+    new->status=true;
+    procs=new;
+    num_proc++;
+    pthread_mutex_unlock(&mutex_pr);
+}
+
+void remove_proc(pid_t pid)
+{
+    pthread_mutex_lock(&mutex_pr);
+    Proc_ch *aux=procs;
+    Proc_ch *prev=NULL;
+    while(aux)
+    {
+        if(aux->pid==pid)
+        {
+            if(!prev)
+            {
+                procs=aux->next;
+                free(aux);
+                num_proc--;
+                pthread_mutex_unlock(&mutex_pr);
+                return;
+            }
+            else{
+                prev->next=aux->next;
+                free(aux);
+                num_proc--;
+                pthread_mutex_unlock(&mutex_pr);
+                return;
+            }
+        }
+        prev=aux;
+        aux=aux->next;
+    }
+    pthread_mutex_unlock(&mutex_pr);
+}
+
+Proc_ch *get_proc(pid_t pid)
+{
+    pthread_mutex_lock(&mutex_pr);
+    Proc_ch *aux=procs;
+    while(aux)
+    {
+        if(aux->pid==pid)
+        {
+            pthread_mutex_unlock(&mutex_pr);
+            return aux;
+        }
+        aux=aux->next;
+    }
+    pthread_mutex_unlock(&mutex_pr);
+    return NULL;
+}
+
+void write_message_log(char* message)
+{
+    time_t rawtime;
+    struct tm *info;
+    char timestamp[20];
+
+    time(&rawtime);
+    info = localtime(&rawtime);
+
+    strftime(timestamp, sizeof(timestamp), "<%Y-%m-%d %H:%M> ", info);
+
+    pthread_mutex_lock(&mutex_log);
+    // Write the formatted date and message to the log
+    fprintf(log, "%s %s", timestamp, message);
+    pthread_mutex_unlock(&mutex_log);
+}
+
+void write_word(char* word)
+{
+    pthread_mutex_lock(&mutex_log);
+    fprintf(log, " %s ", word);
+    pthread_mutex_unlock(&mutex_log);
+}
+
+char* get_time()
+{
+    time_t rawtime;
+    struct tm *info;
+    char timestamp[20];
+
+    time(&rawtime);
+    info = localtime(&rawtime);
+
+    strftime(timestamp, sizeof(timestamp), "<%Y-%m-%d %H:%M> ", info);
+
+    return strdup(timestamp);
+}
+
