@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE 700
+#define _DEFAULT_SOURCE
 #include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
@@ -19,6 +21,9 @@
 #include <sys/un.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <dirent.h>
+#include <limits.h>
+#include<ctype.h>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -68,6 +73,69 @@ struct Connection{
     char port[6];
 }typedef Connection_t;
 
+//MUTEX FOR ACCESSING THE PROCS
+pthread_mutex_t mutex;
+
+struct Proc{
+    pid_t pid;
+    char conf[50];
+    struct Proc* next;
+}typedef Proc_ch;
+
+int num_proc=0;
+Proc_ch *procs=NULL;
+
+void add_proc(pid_t pid, char* conf)
+{
+    pthread_mutex_lock(&mutex);
+    if(!procs)
+    {
+        procs=(Proc_ch*)malloc(sizeof(Proc_ch));
+        procs->pid=pid;
+        strcpy(procs->conf,conf);
+        procs->next=NULL;
+        pthread_mutex_unlock(&mutex);
+        return;
+    }
+    Proc_ch *new=(Proc_ch*)malloc(sizeof(Proc_ch));
+    new->pid=pid;
+    strcpy(new->conf,conf);
+    new->next=procs;
+    procs=new;
+    num_proc++;
+    pthread_mutex_unlock(&mutex);
+}
+
+void remove_proc(pid_t pid)
+{
+    pthread_mutex_lock(&mutex);
+    Proc_ch *aux=procs;
+    Proc_ch *prev=NULL;
+    while(aux)
+    {
+        if(aux->pid==pid)
+        {
+            if(!prev)
+            {
+                procs=aux->next;
+                free(aux);
+                num_proc--;
+                pthread_mutex_unlock(&mutex);
+                return;
+            }
+            else{
+                prev->next=aux->next;
+                free(aux);
+                num_proc--;
+                pthread_mutex_unlock(&mutex);
+                return;
+            }
+        }
+        prev=aux;
+        aux=aux->next;
+    }
+    pthread_mutex_unlock(&mutex);
+}
 
 int create_child_proccess(char *exec_name, Setting *settings);
 
@@ -109,11 +177,15 @@ void* communicate_manager(void *arg);
 
 void handle_forced_exit(int signum);
 
+pid_t* list_child_processes(int *n);
+
+/////////////////////////////////////////// MAIN
 
 int main(int argc, char* argv[])
 {
     struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
+    pthread_mutex_init(&mutex, NULL);
  
 	sa.sa_flags = SA_RESETHAND;
 	sa.sa_handler = handle_forced_exit;
@@ -179,6 +251,8 @@ int create_child_proccess(char *exec_name, Setting *settings)
     if (pid > 0)
     {
         printf("Parent proccess PID %d\n", getpid());
+        add_proc(pid,exec_name);
+        printf("Out of add\n");
         return pid;
     }
 }
@@ -255,8 +329,6 @@ void redirect(char *parameters, int fd_redirected)
 }
 
 // change the owners of the proccess, first the group_owner, lather the owner
-// if we change first the user then it may not have enought permitions to change the group_owner
-// this function has to be called right before the exec command otherwise the rest of the parameter changes may not be done
 void change_owner(uid_t uid)
 {
     if (setuid(uid) != 0)
@@ -372,6 +444,7 @@ void set_initial_conf(Setting * settings, char *line)
 
     strcpy(copy,line);
     p=strtok(copy," ");
+    p=strtok(NULL," ");
     p=strtok(NULL," ");
 
     pid_t pid = atoi(p);
@@ -573,10 +646,10 @@ void apply_settings(Setting * settings)
 
 void* communicate_fsup(void *arg)
 {
-    int new_sockfd;
-    socklen_t clilen;
-    struct sockaddr_un serv_addr, cli_addr;
-    pthread_t thread_id;
+    int                 new_sockfd;
+    socklen_t           clilen;
+    struct sockaddr_un  serv_addr, cli_addr;
+    pthread_t           thread_id;
 
     // Create a socket
     sockfd_fsup_comm = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -603,6 +676,12 @@ void* communicate_fsup(void *arg)
         close(sockfd_fsup_comm);
         exit(EXIT_FAILURE);
     }
+
+    if (chmod(SOCK_PATH, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH) == -1) {
+    perror("chmod");
+    close(sockfd_fsup_comm);
+    exit(EXIT_FAILURE);
+}
 
     // Listen for incoming connections
     if (listen(sockfd_fsup_comm, 5) == -1) {
@@ -660,87 +739,132 @@ void* handle_client(void *arg)
         exit(EXIT_FAILURE);
     }
 
-
+    printf("buffer %s\n",buffer);
     buffer[bytesRead] = '\0';
     char    copy[250];
     strcpy(copy,buffer);
 
-    p=strtok(copy," ");
-    strcpy(file_name,p);
-    pid_fsup_ch=strtok(NULL," ");
-    pid_fsup = atoi(pid_fsup_ch);
-
-
-    FILE*   file = fopen(file_name,"r");
-
-    fgets(line,250,file);
-    
-    if(strstr(line,"[program:")!=NULL)
+    p = strtok(copy," ");
+    if(strcmp(p,"exec")==0)
     {
-        fclose(file);
-        settings = (Setting *)calloc(W_NUMBER, sizeof(Setting));
-        set_initial_conf(settings, buffer);
-        path_to_exec = analise_config(file_name,settings, &flag_redir);
-        pid = create_child_proccess(path_to_exec, settings);
-        free(path_to_exec);
-        free(settings);
-        
-    } else 
-    if(strstr(line,"[group:")!=NULL)
-    {
-        //printf("In group\n");
+        p=strtok(NULL," ");
+        strcpy(file_name,p);
+        pid_fsup_ch = strtok(NULL," ");
+        pid_fsup = atoi(pid_fsup_ch);
+
+
+        FILE*   file = fopen(file_name,"r");
+
         fgets(line,250,file);
         
-        int     nr = atoi(line);
-        char    *p;
-        char    **programs = (char**)calloc(nr,sizeof(char*));
-
-        fgets(line,250,file);
-        fclose(file);
-        p=strtok(line, " ");
-
-        for(int i=0;i<nr;i++)
+        if(strstr(line,"[program:")!=NULL)
         {
-            programs[i]=(char*)calloc(strlen(p)+1,sizeof(char));
-            strcpy(programs[i],p);
-            p=strtok(NULL," \n\t");
-        }
-
-        bool    prev_flag = flag_redir;
-
-        for(int i=0; i<nr; i++)
-        {
+            printf("-----------------------------\n");
+            fclose(file);
             settings = (Setting *)calloc(W_NUMBER, sizeof(Setting));
-
-            strcpy(copy,buffer);
-            set_initial_conf(settings,copy);
-            path_to_exec=analise_config(get_conf_file(CONF_PATH,programs[i]), settings, &flag_redir);
-            analise_config(file_name, settings, &flag_redir);
-            int     current_pid = create_child_proccess(path_to_exec, settings);
-            if(flag_redir == true && prev_flag==false)
-            {
-                pid = current_pid;
-            }
-            prev_flag=flag_redir;
-            free(programs[i]);
+            set_initial_conf(settings, buffer);
+            path_to_exec = analise_config(file_name,settings, &flag_redir);
+            pid = create_child_proccess(path_to_exec, settings);
             free(path_to_exec);
             free(settings);
-        }
-        free(programs);
-    }
-
-
-    if(!flag_redir) {
-        int status;
-        if(waitpid(pid,&status,0) == -1)
+            
+        } else 
+        if(strstr(line,"[group:")!=NULL)
         {
-            perror("waitpid");
-            exit(EXIT_FAILURE);
-        }
-    }
+            //printf("In group\n");
 
-    if (kill(pid_fsup, SIGCONT) == -1)
-        perror("kill fsup");
+            printf("-----------------------------\n");
+            fgets(line,250,file);
+            
+            int     nr = atoi(line);
+            char    *p;
+            char    **programs = (char**)calloc(nr,sizeof(char*));
+
+            fgets(line,250,file);
+            fclose(file);
+            p=strtok(line, " ");
+
+            for (int i = 0; i < nr; i++) {
+                programs[i] = (char*)calloc(strlen(p)+1,sizeof(char));
+                strcpy(programs[i],p);
+                p=strtok(NULL," \n\t");
+            }
+
+            bool    prev_flag = flag_redir;
+
+            for (int i = 0; i < nr; i++) {
+                settings = (Setting *)calloc(W_NUMBER, sizeof(Setting));
+
+                strcpy(copy,buffer);
+                set_initial_conf(settings,copy);
+                path_to_exec = analise_config(get_conf_file(CONF_PATH,programs[i]), settings, &flag_redir);
+                analise_config(file_name, settings, &flag_redir);
+                int     current_pid = create_child_proccess(path_to_exec, settings);
+                if(flag_redir == true && prev_flag==false)
+                {
+                    pid = current_pid;
+                }
+                prev_flag=flag_redir;
+                free(programs[i]);
+                free(path_to_exec);
+                free(settings);
+            }
+            free(programs);
+        }
+
+
+        if(!flag_redir) {
+            int status;
+            if(waitpid(pid,&status,0) == -1)
+            {
+                perror("waitpid");
+                exit(EXIT_FAILURE);
+            }
+            remove_proc(pid);
+        }
+
+        if (kill(pid_fsup, SIGCONT) == -1)
+            perror("kill fsup");
+
+        if(flag_redir) {
+            int status;
+            if(waitpid(pid,&status,0) == -1)
+            {
+                perror("waitpid");
+                exit(EXIT_FAILURE);
+            }
+            remove_proc(pid);
+            printf("Ready waint\n");
+        }
+        
+    }
+    else if(strcmp(p,"procs")==0)
+    {
+        char out[64];
+        char owner[64];
+        p=strtok(NULL," ");
+        strcpy(out,p);
+        pid_fsup_ch = strtok(NULL," ");
+        pid_fsup = atoi(pid_fsup_ch);
+        p=strtok(NULL," ");
+        strcpy(owner,p);
+
+        if (kill(pid_fsup, SIGSTOP) == -1) 
+            perror("kill");
+
+        int num;
+        pid_t *pids=list_child_processes(&num);
+        printf("Output in %s proc %d\n",out,pid_fsup);
+        for(int i=0;i<num;i++)
+        {
+            printf("%d\n",pids[i]);
+        }
+
+        if (kill(pid_fsup, SIGCONT) == -1)
+            perror("kill fsup");
+
+        free(pids);
+    }
 
     close(client_fd);
 
@@ -786,5 +910,35 @@ void handle_forced_exit(int signum)
 {
     close(sockfd_fsup_comm);
     remove(SOCK_PATH);
+    pthread_mutex_destroy(&mutex);
     exit(0);
+}
+
+int isProcessAlive(pid_t pid) {
+    return kill(pid, 0) == 0;
+}
+
+pid_t* list_child_processes(int *n) 
+{
+    pid_t pids[100];
+    pid_t *_pids;
+    int i=0;
+    pthread_mutex_lock(&mutex);
+ 
+    Proc_ch *aux=procs;
+    while(aux)
+    {
+        if(isProcessAlive(aux->pid))
+            pids[i++]=aux->pid;
+        aux=aux->next;
+    }
+    
+    pthread_mutex_unlock(&mutex);
+    (*n)=i;
+    _pids=(pid_t*)malloc(sizeof(pid_t)*i);
+    for(i=0;i<(*n);i++)
+    {
+        _pids[i]=pids[i];
+    }
+    return _pids;
 }

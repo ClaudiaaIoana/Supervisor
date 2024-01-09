@@ -28,60 +28,46 @@
 
 char *get_conf_file(const char* directory_path, const char* target_word);
 
+char *make_exec_string(const char* target_word);
+
+char *make_proc_string();
+
 void connect_to_backsup();
 
 int main(int argc, char* argv[])
 {
-    if(argc<2)
-    {
-        printf("Not enough arguments!\n");
-        exit(-1);
+    int opt;
+    char* program =NULL;
+    char to_send[250]={'\0'};
+
+    while ((opt = getopt(argc, argv, "e:")) != -1) {
+        switch (opt) {
+            case 'e':
+                strcpy(to_send,"exec ");
+                program = optarg;
+                strcat(to_send,make_exec_string(program));
+                break;
+            case '?':
+                break;
+        }
     }
-    char *file;
-    file=get_conf_file(CONF_PATH,argv[1]);
 
-    //input
-    char *terminal_in = ttyname(0);
+    optind = 1;
 
-    //OUTPUT
-    char* terminal_out = ttyname(1);
-
-     uid_t uid = geteuid();
-
-    // Get the password entry for the user ID
-    struct passwd *pw = getpwuid(uid);
-    char owner[50];
-    strcpy(owner, pw->pw_name);
-
-     gid_t gid = getgid();
-
-    // Get the group entry for the group ID
-    struct group *grp = getgrgid(gid);
-    char gowner[50];
-    strcpy(gowner, grp->gr_name);
-
-    int pid = getppid();
-    char pid_s[10];
-    sprintf(pid_s, "%d", pid);
-
-    char to_send[250];
-
-    strcpy(to_send,file);
-    strcat(to_send," ");
-    strcat(to_send,pid_s);
-    strcat(to_send," ");
-    strcat(to_send,owner);
-    strcat(to_send," ");
-    strcat(to_send,gowner);
-    strcat(to_send," ");
-    strcat(to_send,terminal_in);
-    strcat(to_send," ");
-    strcat(to_send,terminal_out);
+    while ((opt = getopt(argc, argv, "p")) != -1) {
+        printf("in get opt 2\n");
+        switch (opt) {
+            case 'p':
+                strcat(to_send,"procs ");
+                strcat(to_send,make_proc_string());
+                break;
+            case '?':
+                break;
+        }
+    }
 
     connect_to_backsup(to_send);
-
     usleep(100000);
-
     return 0;
 }
 
@@ -138,7 +124,7 @@ char *get_conf_file(const char* directory_path, const char* target_word)
 
 void connect_to_backsup(char* message)
 {
-        int sockfd;
+    int sockfd;
     char buffer[256];
     struct sockaddr_un serv_addr;
 
@@ -168,4 +154,73 @@ void connect_to_backsup(char* message)
 
     // Close the socket
     close(sockfd);
+}
+
+char *make_exec_string(const char *target_word)
+{
+    char            *file;
+    char            owner[50];
+    char            gowner[50];
+    uid_t           uid = geteuid();
+    struct passwd   *pw;
+    struct group    *grp;
+    int             pid = getppid();
+    char            pid_s[10];
+    char            to_send[250];
+
+    file=get_conf_file(CONF_PATH,target_word);
+	//INPUT
+    char *terminal_in = ttyname(0);
+    //OUTPUT
+    char* terminal_out = ttyname(1);
+    // Get the user name
+    pw = getpwuid(uid);
+    strcpy(owner, pw->pw_name);
+    gid_t gid = getgid();
+    // Get the group name
+    grp = getgrgid(gid);
+    strcpy(gowner, grp->gr_name);
+    //get pid
+    sprintf(pid_s, "%d", pid);
+
+
+    strcpy(to_send,file);
+    strcat(to_send," ");
+    strcat(to_send,pid_s);
+    strcat(to_send," ");
+    strcat(to_send,owner);
+    strcat(to_send," ");
+    strcat(to_send,gowner);
+    strcat(to_send," ");
+    strcat(to_send,terminal_in);
+    strcat(to_send," ");
+    strcat(to_send,terminal_out);
+
+    return strdup(to_send);
+}
+
+char *make_proc_string()
+{
+    char            owner[50];
+    uid_t           uid = geteuid();
+    struct passwd   *pw;
+    char            to_send[250];
+    int             pid = getppid();
+    char            pid_s[10];
+    //OUTPUT
+    char* terminal_out = ttyname(1);
+    // Get the user name
+    pw = getpwuid(uid);
+    strcpy(owner, pw->pw_name);
+    gid_t gid = getgid();
+    //get pid
+    sprintf(pid_s, "%d", pid);
+
+    strcpy(to_send,terminal_out);
+    strcat(to_send," ");
+    strcat(to_send,pid_s);
+    strcat(to_send," ");
+    strcat(to_send,owner);
+
+    return strdup(to_send);
 }
