@@ -1,3 +1,4 @@
+#define _OPEN_SYS_ITOA_EXT
 #include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
@@ -40,28 +41,33 @@ int main(int argc, char* argv[])
     char* program =NULL;
     char to_send[250]={'\0'};
 
-    while ((opt = getopt(argc, argv, "e:")) != -1) {
+    while ((opt = getopt(argc, argv, "dpe:b:c:k:")) != -1) {
         switch (opt) {
             case 'e':
                 strcpy(to_send,"exec ");
                 program = optarg;
                 strcat(to_send,make_exec_string(program));
                 break;
-            case '?':
+            case 'd':
+                strcpy(to_send,"det_");
                 break;
-        }
-    }
-
-    optind = 1;
-
-    while ((opt = getopt(argc, argv, "p")) != -1) {
-        printf("in get opt 2\n");
-        switch (opt) {
             case 'p':
                 strcat(to_send,"procs ");
                 strcat(to_send,make_proc_string());
                 break;
-            case '?':
+            case 'b':
+                strcat(to_send,"block ");
+                strcat(to_send,optarg);
+                break;
+            case 'c':
+                strcat(to_send,"continue ");
+                strcat(to_send,optarg);
+                break;
+            case 'k':
+                strcat(to_send,"kill ");
+                strcat(to_send,optarg);
+                break;
+            default:
                 break;
         }
     }
