@@ -1,3 +1,4 @@
+#define _OPEN_SYS_ITOA_EXT
 #include <sys/types.h>
 #include <stdio.h>
 #include <string.h>
@@ -21,21 +22,58 @@
 #include <dirent.h>
 
 #define SOCK_PATH "/tmp/mysocket"
+#define CONF_PATH "../configure"
 
 #define MAX_PATH_LENGTH 256
 #define MAX_WORD_LENGTH 50
 
 char *get_conf_file(const char* directory_path, const char* target_word);
 
+char *make_exec_string(const char* target_word);
+
+char *make_proc_string();
+
 void connect_to_backsup();
 
-int main()
+int main(int argc, char* argv[])
 {
-    char *file;
-    file=get_conf_file("../configure","test");
+    int opt;
+    char* program =NULL;
+    char to_send[250]={'\0'};
 
-    printf("%s\n",file);
+    while ((opt = getopt(argc, argv, "dpe:b:c:k:")) != -1) {
+        switch (opt) {
+            case 'e':
+                strcpy(to_send,"exec ");
+                program = optarg;
+                strcat(to_send,make_exec_string(program));
+                break;
+            case 'd':
+                strcpy(to_send,"det_");
+                break;
+            case 'p':
+                strcat(to_send,"procs ");
+                strcat(to_send,make_proc_string());
+                break;
+            case 'b':
+                strcat(to_send,"block ");
+                strcat(to_send,optarg);
+                break;
+            case 'c':
+                strcat(to_send,"continue ");
+                strcat(to_send,optarg);
+                break;
+            case 'k':
+                strcat(to_send,"kill ");
+                strcat(to_send,optarg);
+                break;
+            default:
+                break;
+        }
+    }
 
+    connect_to_backsup(to_send);
+    usleep(100000);
     return 0;
 }
 
@@ -79,7 +117,6 @@ char *get_conf_file(const char* directory_path, const char* target_word)
                 return strdup(file_path);  // Return a duplicate of the file path
             }
         }
-
         // Close the file
         fclose(file);
     }
@@ -91,9 +128,9 @@ char *get_conf_file(const char* directory_path, const char* target_word)
     return NULL;
 }
 
-void connect_to_backsup()
+void connect_to_backsup(char* message)
 {
-        int sockfd;
+    int sockfd;
     char buffer[256];
     struct sockaddr_un serv_addr;
 
@@ -115,33 +152,81 @@ void connect_to_backsup()
     }
 
     // Send data to the server
-	char *message = "Hello, server!";
     ssize_t bytesSent = write(sockfd, message, strlen(message));
     if (bytesSent == -1) {
         perror("write");
         exit(EXIT_FAILURE);
     }
 
-    //get data from server
-    int bytesRead = read(sockfd, buffer, sizeof(buffer) - 1);
-    if (bytesRead == -1) {
-        perror("read");
-        exit(EXIT_FAILURE);
-    }
-    printf("%s\n",buffer);
-
-		message = "Hello, server! 0";
-    for(int i=0;i<5;i++)
-    {
-		sleep(1);
-		ssize_t bytesSent = write(sockfd, message, strlen(message));
-		if (bytesSent == -1) {
-			perror("write");
-			exit(EXIT_FAILURE);
-		}
-		message[strlen(message)-1]+=i;
-    }
-
     // Close the socket
     close(sockfd);
+}
+
+char *make_exec_string(const char *target_word)
+{
+    char            *file;
+    char            owner[50];
+    char            gowner[50];
+    uid_t           uid = geteuid();
+    struct passwd   *pw;
+    struct group    *grp;
+    int             pid = getppid();
+    char            pid_s[10];
+    char            to_send[250];
+
+    file=get_conf_file(CONF_PATH,target_word);
+	//INPUT
+    char *terminal_in = ttyname(0);
+    //OUTPUT
+    char* terminal_out = ttyname(1);
+    // Get the user name
+    pw = getpwuid(uid);
+    strcpy(owner, pw->pw_name);
+    gid_t gid = getgid();
+    // Get the group name
+    grp = getgrgid(gid);
+    strcpy(gowner, grp->gr_name);
+    //get pid
+    sprintf(pid_s, "%d", pid);
+
+
+    strcpy(to_send,file);
+    strcat(to_send," ");
+    strcat(to_send,pid_s);
+    strcat(to_send," ");
+    strcat(to_send,owner);
+    strcat(to_send," ");
+    strcat(to_send,gowner);
+    strcat(to_send," ");
+    strcat(to_send,terminal_in);
+    strcat(to_send," ");
+    strcat(to_send,terminal_out);
+
+    return strdup(to_send);
+}
+
+char *make_proc_string()
+{
+    char            owner[50];
+    uid_t           uid = geteuid();
+    struct passwd   *pw;
+    char            to_send[250];
+    int             pid = getppid();
+    char            pid_s[10];
+    //OUTPUT
+    char* terminal_out = ttyname(1);
+    // Get the user name
+    pw = getpwuid(uid);
+    strcpy(owner, pw->pw_name);
+    gid_t gid = getgid();
+    //get pid
+    sprintf(pid_s, "%d", pid);
+
+    strcpy(to_send,terminal_out);
+    strcat(to_send," ");
+    strcat(to_send,pid_s);
+    strcat(to_send," ");
+    strcat(to_send,owner);
+
+    return strdup(to_send);
 }
