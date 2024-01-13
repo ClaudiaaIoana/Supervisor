@@ -1,4 +1,4 @@
-#define _GNU_SOURCE
+#define _XOPEN_SOURCE 700
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
@@ -6,8 +6,11 @@
 #include <unistd.h>
 #include <time.h>
 #include <pthread.h>
-#include <poll.h>
+#include <sys/epoll.h>
 #include <fcntl.h>
+#include <netdb.h>
+#include <signal.h>
+#include <sys/signalfd.h>
 
 #include "../utils/utils.h"
 #include "../utils/json.h"
@@ -16,28 +19,22 @@
 #define MAX_PROCESSES 256
 #define MAX_CLIENTS 10
 
-typedef struct Process{
-    pid_t pid;
-    char *name;
-    int client_fd;
-} Process;
-
 typedef struct Connection {
     __uint16_t port;
-    struct sockaddr_in serv_addr;
-    socklen_t socket_len;
-    size_t num_clients;
-    struct pollfd *listen;
-    struct pollfd *clients;
+    char *ip;
 } Connection;
 
-typedef struct State{
-    Connection* connection;
-    Process *processes;
+typedef struct Client {
+    int fd;
+    char *ip;
+    int port;
+    char *host;
+} Client;
+
+typedef struct Manager {
     size_t process_count;
     size_t capacity;
-    FILE *log;
-} State;
+} Manager;
 
 typedef struct Task {
     int client_fd;
@@ -45,23 +42,26 @@ typedef struct Task {
     void *args;
 } Task;
 
+pthread_mutex_t mutex_log = PTHREAD_MUTEX_INITIALIZER;
+
+int clients[MAX_CLIENTS];
 pthread_mutex_t mutex_clients = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t cond_clients = PTHREAD_COND_INITIALIZER;
 
 time_t current_time;
 
 int main(int argc, char *argv[]);
-void init_connection(Connection *connection);
-void init_manager_state(State *manager, Connection *connection);
-void add_process(State *manager, pid_t pid, const char *process_name);
-void print_processes(const State *manager);
-void print_clients(const State *manager);
-void cleanup_state(State *manager);
+void init_manager_state(Manager *manager);
+void add_process(Manager *manager, pid_t pid, const char *process_name);
+void print_processes();
+void print_clients();
+void cleanup_state(Manager *manager);
 void cleanup_connection(Connection *connection);
-void log_entry(State *manager, const char *message);
+void log_entry(const char *message);
 void *client_handler(void *args);
 void *connection_handler(void* args);
-void *server_command();
+void *tasks_handler(void* args);
+void *server_command(void* args);
+Client *get_client_info(int client_fd);
 
 int main(int argc, char *argv[]) {
 
@@ -70,58 +70,48 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    sigset_t mask; 
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);               
+    sigaddset(&mask, SIGQUIT);               
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+    int sfd = signalfd(-1, &mask, 0);
+
     Connection *connection = (Connection*) calloc (1, sizeof(Connection));
     DIE(connection == NULL, "calloc()");
-    connection->port = atoi(argv[2]);
-    init_connection(connection);
     
-    connection->listen->fd = socket(AF_INET, SOCK_STREAM, 0);
-    DIE(connection->listen->fd < 0, "socket()");
-
-    connection->socket_len = sizeof(struct sockaddr_in);
-
-    int enable = 1;
-    if(setsockopt(connection->listen->fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
-        perror("setsockopt(SO_REUSEADDR) failed");
-    }
-
-    memset(&connection->serv_addr, 0, connection->socket_len);
-    connection->serv_addr.sin_family = AF_INET;
-    connection->serv_addr.sin_port = htons(connection->port);
-
-    int rc = inet_pton(AF_INET, argv[1], &connection->serv_addr.sin_addr.s_addr);
-    DIE(rc <= 0, "inet_pton");
-
-    rc = bind(connection->listen->fd, (const struct sockaddr*)&connection->serv_addr, connection->socket_len);
-    DIE(rc < 0, "bind()");
+    connection->ip = argv[1];
+    connection->port = atoi(argv[2]);
+    
+    int rc = 0;
+    pthread_t server_cmd;
+    rc = pthread_create(&server_cmd, NULL, &server_command, &sfd);
+    DIE(rc != 0, "pthread_create()");
 
     pthread_t connection_thread;
     rc = pthread_create(&connection_thread, NULL, &connection_handler, connection);
     DIE(rc != 0, "pthread_create()");
     
-    State *manager = (State*) calloc (1, sizeof(State));
-    DIE(manager == NULL, "calloc()");
+    // pthread_t tasks_thread;
+    // rc = pthread_create(&tasks_thread, NULL, &tasks_handler, connection);
+    // DIE(rc != 0, "pthread_create()");
 
-    init_manager_state(manager, connection);
+    // pthread_t thread_pool[MAX_CLIENTS];
+    // for (size_t i = 0; i < MAX_CLIENTS; i++) {
+    //     rc = pthread_create(&thread_pool[i], NULL, &client_handler, manager);
+    //     DIE(rc != 0, "pthread_create()");
+    // }
 
-    pthread_t thread_pool[MAX_CLIENTS];
-    for (size_t i = 0; i < MAX_CLIENTS; i++) {
-        rc = pthread_create(&thread_pool[i], NULL, &client_handler, manager);
-        DIE(rc != 0, "pthread_create()");
-    }
-
-    pthread_t server_cmd;
-    rc = pthread_create(&server_cmd, NULL, &server_command, manager);
-    DIE(rc != 0, "pthread_create()");
+    // pthread_join(connection_thread, NULL);
+    // for(size_t i = 0; i < MAX_CLIENTS; i++) {
+    //     pthread_join(thread_pool[i], NULL);
+    // }
 
     pthread_join(connection_thread, NULL);
-    for(size_t i = 0; i < MAX_CLIENTS; i++) {
-        pthread_join(thread_pool[i], NULL);
-    }
     pthread_join(server_cmd, NULL);
     
-    cleanup_state(manager);
-    free(manager);
+    //cleanup_state(manager);
+    //free(manager);
     
     return EXIT_SUCCESS;
 }
@@ -129,166 +119,241 @@ int main(int argc, char *argv[]) {
 void *connection_handler(void *args)
 {   
     Connection *connection = (Connection*) args;
-    int rc = listen(connection->listen->fd, MAX_CLIENTS);
+    struct sockaddr_in serv_addr;
+    socklen_t socket_len = sizeof(struct sockaddr_in);
+
+    int listen_fd = 0;
+    int num_clients = 0;
+
+    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    DIE(listen_fd < 0, "socket()");
+
+    int enable = 1;
+    if(setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
+        perror("setsockopt(SO_REUSEADDR) failed");
+    }
+
+    bzero(&serv_addr, socket_len);
+    
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(connection->port);
+    int rc = inet_pton(AF_INET, connection->ip, &serv_addr.sin_addr.s_addr);
+    DIE(rc <= 0, "inet_pton");
+    
+    rc = bind(listen_fd, (const struct sockaddr*)&serv_addr, socket_len);
+    DIE(rc < 0, "bind()");
+    rc = listen(listen_fd, MAX_CLIENTS);
     DIE(rc < 0, "listen()");
+
+    struct epoll_event ev;
+    int epfd = epoll_create(MAX_CLIENTS);
+    DIE(epfd < 0, "epoll_create()");
+   
+    ev.data.fd = listen_fd;        
+    ev.events = EPOLLIN;
+    epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev);
+    
+    int nfds = 0;
+    int client_fd = 0;
+
+    struct epoll_event events[MAX_CLIENTS];
+
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+
     while(1) {
-        rc = poll(connection->listen, 1, 0);
-        DIE(rc < 0, "poll_listen()");
-        if(connection->listen->revents & POLLIN) {
-            printf("added client: %i\n", connection->listen->revents);
-            struct sockaddr_in client_addr;
-            socklen_t client_len = sizeof(client_addr);
-            int conn_fd = accept(connection->listen->fd, (struct sockaddr*)&client_addr, &client_len);
-            DIE(conn_fd < 0, "accept()");
-            printf("new conn_fd: %d\n", conn_fd);
-            printf("num_clients: %d\n", connection->num_clients);
-            //client->ip_address = inet_ntoa(client_addr.sin_addr));
-            pthread_mutex_lock(&mutex_clients);
-            for(int i = 0; i < MAX_CLIENTS; i++) {
-                if(connection->clients[i].fd == 0) {
-                    connection->clients[i].fd = conn_fd;
-                    connection->clients[i].events = POLLIN | POLLRDHUP;
-                    connection->num_clients++;
-                    break;
+        nfds = epoll_wait(epfd, &events, MAX_CLIENTS, -1);
+        DIE(nfds < 0, "epoll_wait");
+
+        for(int i = 0; i < nfds; i++) {
+            if ((events[i].data.fd == listen_fd) && ((events[i].events & EPOLLIN) != 0)) {
+                client_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
+                
+                pthread_mutex_lock(&mutex_clients);
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (clients[i] == 0) {
+                        clients[i] = client_fd;
+                        ev.data.fd = clients[i];        
+                        ev.events = EPOLLIN|EPOLLRDHUP;
+                        epoll_ctl(epfd, EPOLL_CTL_ADD, clients[i], &ev);
+                        num_clients++;
+                        bzero(&client_addr, client_len);
+                        Client *client_info = get_client_info(client_fd);
+                        char message[BUFFER_SIZE];
+                        sprintf(message, "INFO: connection on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+                        log_entry(message);
+                        break;
+                    }
                 }
+                pthread_mutex_unlock(&mutex_clients);
             }
-            connection->listen->revents = 0;
-            pthread_mutex_unlock(&mutex_clients); 
-        }
-        rc = poll(connection->clients, MAX_CLIENTS, 0);
-        DIE(rc < 0, "poll_clients()");
-        for (size_t i = 0; i < MAX_CLIENTS; i++) {
-            if(connection->clients[i].fd != 0) {
-                if(connection->clients[i].revents & POLLRDHUP) {
-                    printf("client disconnected\n");
+
+            else {
+                if (events[i].events & EPOLLIN) {
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (clients[i] == events[i].data.fd) {
+                            char message[BUFFER_SIZE];
+                            Client *client_info = get_client_info(clients[i]);
+                            sprintf(message, "INFO: received message on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+                            log_entry(message);
+                            memset(message, 0, BUFFER_SIZE);
+                            int rc = read(clients[i], message, BUFFER_SIZE);
+                            DIE(rc < 0, "read()");
+                            break;
+                        }
+                    }
+                }
+
+                if (events[i].events & EPOLLRDHUP) {
                     pthread_mutex_lock(&mutex_clients);
-                    close(connection->clients[i].fd);
-                    connection->clients[i].fd = 0;
-                    connection->num_clients--;
-                    connection->clients[i].revents = 0;
+                    for (int i = 0; i < MAX_CLIENTS; i++) {
+                        if (clients[i] == events[i].data.fd) {
+                            char message[BUFFER_SIZE];
+                            Client *client_info = get_client_info(clients[i]);
+                            sprintf(message, "INFO: connection closed on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+                            log_entry(message);
+                            close(clients[i]);
+                            clients[i] = 0;
+                            num_clients--;
+                            break;
+                        }
+                    }
                     pthread_mutex_unlock(&mutex_clients);
-                }
+                } 
             }
-        }
+        }       
     }
 }
 
 void *client_handler(void *args)
 {
-    State *manager = (State*) args;
+
+}
+
+void *tasks_handler(void *args)
+{
+    
+}
+
+Client *get_client_info(int client_fd)
+{
+    Client *client_info = (Client*) calloc(1, sizeof(Client));
+    DIE(client_info == NULL, "calloc()");
+
+    struct sockaddr_in client_addr;
+    socklen_t client_len = sizeof(client_addr);
+    int rc = getpeername(client_fd, (struct sockaddr*)&client_addr, &client_len);
+    DIE(rc < 0, "getpeername()");
+
+    client_info->fd = client_fd;
+    client_info->ip = inet_ntoa(client_addr.sin_addr);
+    client_info->port = ntohs(client_addr.sin_port);
+    struct hostent *host_info = gethostbyaddr(&(client_addr.sin_addr), sizeof(struct in_addr), AF_INET);
+    client_info->host = host_info->h_name;
+
+    return client_info;
+}
+
+void *server_command(void *args)
+{
     char buffer[BUFFER_SIZE];
+    int rc = 0;
+    int sfd = *(int*)args;
+    struct signalfd_siginfo fdsi;
+    struct epoll_event ev;
+    int epfd = epoll_create(2);
+
+    ev.data.fd = STDIN_FILENO;        
+    ev.events = EPOLLIN;
+    epoll_ctl(epfd, EPOLL_CTL_ADD, STDIN_FILENO, &ev);
+    
+    ev.data.fd = sfd;        
+    ev.events = EPOLLIN;
+    epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev);
+
+    struct epoll_event ret_ev;
+    int nfds = 0;
+    
     while(1) {
-        for (size_t i = 0; i < MAX_CLIENTS; i++) {
-            if(manager->connection->clients[i].fd != 0) {
-                if(manager->connection->clients[i].revents & POLLIN) {
-                    //printf("client %d sent data\n", manager->connection->clients[i].fd);
-                    manager->connection->clients[i].revents = 0;
-                    int rc = recv(manager->connection->clients[i].fd, buffer, BUFFER_SIZE, 0);
-                    if(rc <= 0) {
-                        break;
-                    }
-                    buffer[rc] = '\0';
-                }
-                // access information in JSON data
-                //cJSON *json = cJSON_Parse(buffer);   
-                //cJSON *pid = cJSON_GetObjectItem(json, "pid");
-                //cJSON *process_name = cJSON_GetObjectItem(json, "name");
-                //char message[32];
-                //strcpy(message, "process launched");
-                //log_entry(manager, message);
-                //add_process(manager, pid->valueint, process_name->valuestring); 
+
+        printf("manager> ");
+        fflush(stdout);
+
+        nfds = epoll_wait(epfd, &ret_ev, 1, -1);
+        DIE(nfds < 0, "epoll_wait");
+
+        if ((ret_ev.data.fd == STDIN_FILENO) && ((ret_ev.events & EPOLLIN) != 0)) {
+            memset(buffer, 0, 1024);
+            int bytesRead = read(STDIN_FILENO, buffer, sizeof(buffer));
+            DIE(bytesRead < 0, "read()");
+            buffer[bytesRead - 1] = 0;
+            if(strcmp(buffer, "clients") == 0) {
+                print_clients();
+            }
+            else if(strcmp(buffer, "processes") == 0) {
+                print_processes();
+            }
+            else if(strcmp(buffer, "exit") == 0) {
+                exit(0);
+            }
+            else {
+                printf("Invalid command\n");
+            }
+        }
+
+        else if ((ret_ev.data.fd == sfd) && ((ret_ev.events & EPOLLIN) != 0)) {
+            int s = read(sfd, &fdsi, sizeof(struct signalfd_siginfo));
+            if (fdsi.ssi_signo == SIGINT) {
+                exit(0);
+            } else if (fdsi.ssi_signo == SIGQUIT) {
+                exit(0);
+            } else {
+                printf("unexpected signal\n");
             }
         }
     }
 }
 
-void *server_command(void *args)
+void init_manager_state(Manager *manager)
 {
-    State *manager = (State*) args;
-    char buffer[BUFFER_SIZE];
-
-    while(1) {
-        
-        printf("supervisor> ");
-        memset(buffer, 0 , BUFFER_SIZE);
-        fgets(buffer, BUFFER_SIZE, stdin);
-        buffer[strlen(buffer) - 1] = '\0';
-        
-        if(strcmp(buffer, "exit") == 0) {
-            break;
-        }
-        else if(strcmp(buffer, "status") == 0) {
-            print_processes(manager);
-        }
-        else if(strcmp(buffer, "clients") == 0) {
-            print_clients(manager);
-        } 
-        else{
-            printf("invalid command\n");
-        }
-    }
-}
-
-void init_connection(Connection *connection)
-{
-    connection->listen = calloc(1, sizeof(struct pollfd));
-    DIE(connection->listen == NULL, "calloc()");
-    connection->listen->events = POLLIN;
-    connection->clients = calloc(MAX_CLIENTS, sizeof(struct pollfd));
-    DIE(connection->clients == NULL, "calloc()");
-    connection->num_clients = 0;
-}
-
-void init_manager_state(State *manager, Connection *connection)
-{
-    manager->connection = connection;
-    manager->processes = calloc(manager->capacity, sizeof(Process));
     manager->process_count = 0;
     manager->capacity = 256;
-    manager->log = fopen("manager.log", "w");
-    DIE(manager->log == NULL, "fopen()");
-    manager->connection->clients = calloc(MAX_CLIENTS, sizeof(struct pollfd));
-    DIE(manager->connection->clients == NULL, "calloc()");
 }
 
-void add_process(State *manager, pid_t pid, const char *process_name) {
-    Process *current_process = &manager->processes[manager->process_count++];
-    current_process->name = calloc(32, sizeof(char));
-    current_process->pid = pid;
-    strcpy(current_process->name, process_name);
+void add_process(Manager *manager, pid_t pid, const char *process_name) {
+
 }
 
-void log_entry(State *manager, const char *message) {
+void log_entry(const char *message) {
+
+    pthread_mutex_lock(&mutex_log);
+    FILE *log = fopen("manager.log", "a");
     time(&current_time);
-    fprintf(manager->log, "%s > [%s]\n", ctime(&current_time), message);
-    printf("logged success %s\n", message);
+    char *current_time_str = ctime(&current_time);
+    current_time_str[strlen(current_time_str) - 1] = '\0';
+    fprintf(log, "[%s] %s\n", current_time_str, message);
+    fclose(log);
+    pthread_mutex_unlock(&mutex_log);
 }
 
-void print_processes(const State *manager) {
-    printf("current processes for client:\n");
-    for (size_t i = 0; i < manager->process_count; i++) {
-        const Process *process = &manager->processes[i];
-        printf("pid: <%d>, name: <%s>\n", process->pid, process->name);
-    }
+void print_processes() {
+    
 }
 
-void print_clients(const State *manager) {
+void print_clients() {
     for (size_t i = 0; i < MAX_CLIENTS; i++) {
-        if(manager->connection->clients[i].fd != 0) {
-            printf("client: <%d>\n", manager->connection->clients[i].fd);
+        if (clients[i] != 0) {
+            Client *client_info = get_client_info(clients[i]);
+            printf("%zu\t%s\t%d\t%s\n", i + 1, client_info->ip, client_info->port, client_info->host);
         }
     }
 }
 
-void cleanup_state(State *manager) {
-    free(manager->processes);
-    free(manager->connection->clients);
+void cleanup_state(Manager *manager) {
     manager->process_count = 0;
     manager->capacity = 256;
 }
 
 void cleanup_connection(Connection *connection) {
-    free(connection->listen);
-    free(connection->clients);
-    connection->num_clients = 0;
+
 }

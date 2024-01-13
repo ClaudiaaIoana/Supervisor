@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS = -Wall -Wextra -g
 
 server: server.c
-	$(CC) $(CFLAGS) ../utils/json.c server.c -o server 
+	$(CC) $(CFLAGS) ../utils/json.c server.c -o server -pthread
 
 client: client.c
 	$(CC) $(CFLAGS) ../utils/json.c client.c -o client 
