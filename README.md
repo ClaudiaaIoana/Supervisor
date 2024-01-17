@@ -1,4 +1,4 @@
-# SuperManager🚀
+![Image Alt text](/logo.png "Diagram"))
 
 **Dodot Andrei & Dascalescu Claudia**  
 *C113E, Academia Tehnica Militara "Ferdinand I"*
