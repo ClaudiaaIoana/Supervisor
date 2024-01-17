@@ -109,4 +109,6 @@ Supervisor comprises two main entities:
 ## Architecture
 
 ### 5.1 Diagram
+![Image Alt text](/Diagram.png "Diagram"))
+
 
