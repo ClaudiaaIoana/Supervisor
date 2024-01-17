@@ -1,109 +1,112 @@
-SuperManager
+# SuperManager🚀
 
-Dodot Andrei & Dascalescu Claudia
-C113E
-Academia Tehnica Militara “Ferdinand I”
+**Dodot Andrei & Dascalescu Claudia**  
+*C113E, Academia Tehnica Militara "Ferdinand I"*
 
-Cuprins
+## Table of Contents
 
-Capitolul 1 - Introducere	
-1.1. Scopul proiectului	
-1.2. Lista definițiilor	
-Capitolul 2 - Descrierea generală a produsului software	
-2.1. Descrierea produsului software
-2.2. Detaliera platformei HW/SW	
-2.3. Constrângerile
-Capitolul 3 - Detalierea cerințelor specifice	
-3.2. Cerințele ne-funcționale	
+1. [Introduction](#introduction)
+   - 1.1 [Project Purpose](#project-purpose)
+   - 1.2 [Key Definitions](#key-definitions)
+2. [General Software Product Description](#general-software-product-description)
+   - 2.1 [Software Overview](#software-overview)
+   - 2.2 [HW/SW Platform Details](#platform-details)
+   - 2.3 [Constraints](#constraints)
+3. [Detailed Specific Requirements](#detailed-specific-requirements)
+   - 3.1 [Functional Requirements](#functional-requirements)
+   - 3.2 [Non-functional Requirements](#non-functional-requirements)
+4. [Key Implementation Points](#key-implementation-points)
+   - 4.1 [Fsup](#fsup)
+   - 4.2 [Backsup](#backsup)
+   - 4.3 [Manager](#manager)
+5. [Architecture](#architecture)
+   - 5.1 [Diagram](#diagram)
 
+## Introduction
 
-Aplicatie tip Supervisor
-Capitolul 1 – Introducere
+### 1.1 Project Purpose
+The SuperManager project aims to develop a transparent Linux process management and monitoring application, facilitating both local and remote user interactions to ensure ease of use.
 
-1.1. Scopul proiectului
-Scopul proiectului constă în dezvoltarea unei aplicații de management și monitorizare a proceselor lansate în execuție sub Supervisor. Această aplicație are ca obiectiv principal furnizarea unui mecanism transparent pentru gestionarea și personalizarea proceselor într-un mediu Linux. De asemenea, trebuie să fie ușor de utilizat, atât pentru utilizatorii locali, cât și pentru cei remote.
-1.2. Lista definițiilor
-Pentru a asigura o înțelegere clară a termenilor utilizați în cadrul documentației, sunt definite următoarele concepte:
-•	fsup: Programul tip command-line-interface care permite interacțiunea utilizatorului cu backsup.
-•	backsup: Serviciul systemd cu rol în managementul proceselor, reprezentând componenta principală a aplicației Supervisor.
-•	POSIX: Familie de standarde specificate de Societatea de calculatoare IEEE pentru menținerea compatibilității dintre sistemele de operare.
-•	Client: Utilizatorul sau entitatea care utilizează aplicația Supervisor pentru a gestiona și monitoriza procese.
-•	Server (Manager): Programul care oferă utilizatorilor un mijloc de gestionare și monitorizare remote a proceselor rulate sub aplicația Supervisor.
-Capitolul 2 - Descrierea generală a produsului software
+### 1.2 Key Definitions
+- **fsup**: Command-line interface program for user interaction.
+- **backsup**: systemd service managing processes, a vital component of Supervisor.
+- **POSIX**: IEEE computer standards for OS compatibility.
+- **Client**: Entity using Supervisor to manage and monitor processes.
+- **Server (Manager)**: Program enabling remote management and monitoring.
 
-2.1. Descrierea produsului software
-Aplicația Supervisor este concepută ca un sistem Client-Server și constă din două entități principale:
-•	Serverul (Manager): Acesta reprezintă un program care oferă utilizatorilor un mijloc de gestionare și monitorizare remote a proceselor rulate sub aplicația Supervisor. Managerul trebuie să ofere funcționalități avansate pentru controlul și configurarea proceselor.
-•	Clientul (Supervisor): Este aplicația care rulează pe o stație și asigură execuția programelor conform criteriilor specificate în fișierele de configurare corespunzătoare. Acesta este compus din două componente principale:
-•	fsup: Este un program care rulează în modul foreground și permite utilizatorilor să trimită comenzi și să interacționeze direct cu Supervisor.
-•	Backsup: Este un program ce ruleaza in backgroud (sub forma de serviciu systemd).
-•	Fisierele de configurare: Aceste fișiere reprezintă modalitatea structurată de transmitere a specificațiilor utilizatorului pentru executarea unui program. Fiecare program poate avea mai multe fișiere de configurare, iar acestea sunt create și gestionate de către utilizator.
+## General Software Product Description
 
+### 2.1 Software Overview
+Supervisor comprises two main entities:
+- **Server (Manager)**: A remote process manager with advanced control and configuration features.
+- **Client (Supervisor)**: Runs on a station, executing programs based on specified criteria. Comprises `fsup` and `Backsup` components.
 
-2.2. Detaliera platformei HW/SW
-Aplicația Supervisor necesită un mediu specific pentru a funcționa corect, care include:
-•	Sistem de operare Linux-compatible: Aplicația este dezvoltată pentru a funcționa pe sistemele de operare compatibile cu Linux, asigurându-se că toate funcționalitățile sunt suportate corespunzător.
-•	Respectarea standardului POSIX: Aplicația se bazează pe standardele POSIX pentru a asigura compatibilitatea între sistemele de operare și funcționalitățile implementate.
-•	C Standard Library: Dezvoltarea aplicației se realizează utilizând biblioteca standard C pentru a asigura un cod portabil și eficient.
-•	Biblioteca pthread.h: Această bibliotecă este utilizată pentru gestionarea firelor de execuție (thread-urilor) și pentru a permite multitasking în aplicație.
-•	Biblioteca fcntl: Este utilizată pentru manipularea fișierelor și descriptorilor de fișiere, având un rol crucial în gestionarea fișierelor de configurare și a comunicării între entitățile Supervisor.
+### 2.2 HW/SW Platform Details
+- Linux-compatible OS
+- POSIX standards adherence
+- C Standard Library for portable code
+- pthread.h for thread management
+- fcntl library for file manipulation
 
+### 2.3 Constraints
+- **fsup Constraints**:
+  - Runs with current user permissions.
+- **backsup Constraints**:
+  - Requires a correct config file for proper execution.
+  - Must run with root permissions for process management.
+- **manager Constraints**:
+  - Dependent on the existence of connected clients.
 
-2.3. Constrângerile
-Pentru ca aplicația Supervisor să funcționeze corespunzător, sunt definite o serie de constrângeri, incluzând:
-Constrângeri ale fsup:
-•	Rulează cu permisiunile utilizatorului curent, ceea ce înseamnă că comenzi precum crearea sau terminarea proceselor sunt limitate de permisiunile utilizatorului care a inițiat comanda.
-Constrângeri ale backsup:
-•	Fisierul de configurare trebuie să fie corect și să respecte structura specificată pentru a asigura o execuție corectă a proceselor.
-•	backsup nu poate modifica sau interveni asupra resurselor procesului după suprascrierea imaginii acestuia, asigurând astfel stabilitatea procesului. De asemenea, **backsup** trebuie să ruleze cu permisiuni de root pentru a putea gestiona și controla procesele într-un mod eficient și pentru a asigura funcționalitatea corespunzătoare a aplicației Supervisor.
+### Detailed Specific Requirements
 
-Constrângeri ale fișierelor de configurare:
-•	- Fiecare fișier de configurare trebuie să conțină calea către executabil, un nume unic, o structură predefinită și să fie redactat de către utilizator. Aceste fișiere sunt esențiale pentru definirea comportamentului proceselor.
+#### 3.1 Functional Requirements
+- **User Communication**:
+  - `fsup <program> <args>`: Launches processes with a specified executable path and arguments.
+  - `fsup <options> <pid>`: Performs operations on a process using options like "kill."
 
-Constrângeri hardware:
-•	- Aplicația Supervisor poate avea cerințe de resurse hardware, în special în ceea ce privește numărul de CPU cores, pentru a susține multitasking și multithreading într-un mod eficient.
+- **Manager (Server)**:
+  - Manages clients and the processes they launch.
+  - Decision-making for process control and file modification.
 
-Capitolul 3 - Detalierea cerințelor specifice
+- **Operation Logging**:
+  - `Backsup` logs all actions for tracking and analysis.
+  - `Manager` maintains its own journal, helpful for the administrator.
 
+#### 3.2 Non-functional Requirements
+- **Error Handling Mechanism**: Robust error handling for unforeseen situations.
+- **Local User Interaction**: `fsup` locates and searches for config files, providing proper error messages.
+- **Communication**: UnixSocket-based communication between `fsup` and `backsup`.
+  InetSocket-based communication between `backsup` and `Manager`.
+- **Config File Processing**: `Backsup` processes config files, ensuring conditions for program execution.
+- **Manager-Supervisor Communication**: Using JSON to simplify the parse process.
 
- 3.1. Cerințele funcționale
-Aplicația Supervisor are următoarele cerințe funcționale:
+## Key Implementation Points
 
-•	Comunicarea cu utilizatorul:
-▫	fsup <program> <args>: Comanda fsup permite utilizatorilor să lanseze procese, unde "program" reprezintă calea către executabil, iar "args" reprezintă argumentele programului. Dacă nu se găsește un fișier de configurare specific pentru programul respectiv, fsup trebuie să trateze o excepție corespunzătoare.
-▫	fsup <optiuni> <pid> (opțional): Cu ajutorul acestei comenzi, utilizatorii pot efectua operații specifice asupra unui proces folosind opțiuni precum "kill" pentru a termina procesul.
+### 4.1 Fsup
+- **Single-threaded**: Uses a single thread to connect to backsup and send a request.
 
-•	Managerul (Server): Managerul trebuie să aibă acces la o listă cu clienți și procesele rulate de fiecare în parte, precum și la fișierele de configurare. Acesta poate lua diverse decizii, inclusiv crearea, terminarea sau modificarea stării proceselor, cat si modificarea fisierelor de conf.
+### 4.2 Backsup
+- **Multithreaded**:
+  - A thread listens for incoming connections from fsup.
+  - For every connection, a thread is created to handle the request, be it the launch of a process and waiting for it to end or a list of pid redirected in the fsups terminal.
+  - A thread handles the connection with the Manager.
+- **Fsup Wait**:
+  - Backsup has the responsibility to make the fsup enter a waiting state while it handles the request.
+  - After it makes sure the fsup has no more input to get, it lets the process rerun its course and end the execution normally.
+- **Settings Structure**:
+  - A specially defined structure that gradually updates the parameters for executing the program in the desirable way.
+  - If the .conf file does not provide enough details, the default behavior is to take the basic parameters of the .fsup (owner, gowner, stdin, stdout, stderr).
+- **Process List**:
+  - A list created to keep track of the processes currently running under it and their status.
+  - It is updated at every create_process and every time a child process ends its execution.
+- **Log**:
+  - Made with some thread-safe implemented functions that write in a local file "activity.log".
 
-•	Jurnalizarea operațiunilor: Backsup are responsabilitatea de a jurnaliza toate acțiunile efectuate, atât cele proprii, cât și cele primite de la Manager. Această funcționalitate este esențială pentru urmărirea și analiza acțiunilor din trecut.
+### 4.3 Manager
+- **Multithreading**: Handles multiple connected clients.
+- **Facile Communication**: Uses .json to send and receive data from backsup.
 
+## Architecture
 
- 3.2. Cerințele ne-funcționale
-Aplicația Supervisor implică următoarele cerințe ne-funcționale:
-
-•	Mecanism de tratare al erorilor: Aplicația trebuie să ofere un mecanism solid de tratare a erorilor pentru a gestiona situațiile neprevăzute și pentru a oferi feedback corespunzător utilizatorilor.
-
-•	Gestionarea comenzilor utilizatorului local: fsup trebuie să preia numele programului transmis ca parametru și să caute fișierul de configurare corespunzător. În cazul în care fișierul nu este găsit, fsup trebuie să trimită un mesaj de eroare corespunzător.
-
-•	Comunicarea între fsup și backsup: Comunicarea între client (fsup) și server (backsup) se realizează prin intermediul unor socket-uri, asigurând transmiterea datelor și comenzilor între entități.
-
-•	Procesarea fișierelor de configurare: backsup trebuie să poată procesa fișierele de configurare și să creeze condițiile specificate pentru rularea programelor, respectând detaliile din fișierele .conf. Acest lucru se realizează prin suprascrierea imaginii procesului cu ajutorul funcției execlp.
-
-•	Comunicarea intre backsup si server: printr-un socket de comunicatie vor comunica cele doua instante, thread-ul responsabil cu ascultarea de mesaje pe socket-ul respectiv al backsup-ului va capta mesaje de forma "<comanda> <pid>" sau "<nume .conf> <dimensiune>", acesta va analiza mesajul captat si respectiv va apela functii pentru prelucrarea starii procesului cerul sau va capta in continuare bucatile de fisier si le va asambla pentru a actualiza local fisierul de configurare precizat.
-
-•	Gestionarea thread-urilor: Backsup trebuie să utilizeze thread-uri pentru gestionarea mesajelor primite de la Manager și pentru citirea numelor fișierelor de configurare dintr-un named pipe.
-
-•	Rulare în background: Backsup trebuie să fie configurat pentru a rula în mod background încă de la bootarea sistemului, astfel încât toate programele rulate sub "fsup" să fie gestionate de aceeași instanță a backsup.
-
-•	Securitate: Pentru programele care necesită permisiuni de root pentru rulare, comanda "fsup" trebuie să fie executată cu permisiuni de root. Cu toate acestea, backsup trebuie să aplice strict politicile de securitate pentru a preveni accesul neautorizat.
-
-•	Interacțiunea cu utilizatorul local: Aplicația trebuie să ofere posibilitatea utilizatorilor de a interacționa cu procesele aflate în execuție și să efectueze acțiuni precum crearea, terminarea sau editarea fișierelor de configurare, oferind astfel o experiență de utilizare intuitivă.
-
-•	Interactiunea cu utilizatorul remote: Managerul la conectare va astepta sa primeasca detalii despre procesele rulate sub supervisor de clienti si va putea lua diferite decizii (uciderea, crearea, stoparea unui proces) sau chiar editarea unui fisier de conf.
-
-•	Jurnalizarea: programul backsup este responsabil cu jurnalizarea acctivitatii ce priveste statia pe care ruleaza, acesta va scrie mesaje intr-un fisier de tip .log atat referitoare la actiunile utilizatorului local cat si ale celui remote, care au efect asupra proceselor locale.
-
-
-4. Arhitectura
-![image](https://github.com/ClaudiaaIoana/Supervisor/assets/91790390/a6596b4e-baef-4a66-bbb5-b77b1d2c7abd)
+### 5.1 Diagram
 
