@@ -32,13 +32,13 @@ The SuperManager project aims to develop a transparent Linux process management 
 - **backsup**: systemd service managing processes, a vital component of Supervisor.
 - **POSIX**: IEEE computer standards for OS compatibility.
 - **Client**: Entity using Supervisor to manage and monitor processes.
-- **Server (Manager)**: Program enabling remote management and monitoring.
+- **Server (Manager)**: Program enabling remote monitoring.
 
 ## General Software Product Description
 
 ### 2.1 Software Overview
 Supervisor comprises two main entities:
-- **Server (Manager)**: A remote process manager with advanced control and configuration features.
+- **Server (Manager)**: A remote process monitor.
 - **Client (Supervisor)**: Runs on a station, executing programs based on specified criteria. Comprises `fsup` and `Backsup` components.
 
 ### 2.2 HW/SW Platform Details
@@ -56,7 +56,7 @@ Supervisor comprises two main entities:
   - Must run with root permissions for process management.
   - The directories and files included in .conf have to exist on the device that runs the backsup, if not the processes won't run or won't have the exepcted behaviour.
 - **manager Constraints**:
-  - Dependent on the existence of connected clients.
+  - The clients have to be connected to the same network.
 
 ### Detailed Specific Requirements
 
