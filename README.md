@@ -54,6 +54,7 @@ Supervisor comprises two main entities:
 - **backsup Constraints**:
   - Requires a correct config file for proper execution.
   - Must run with root permissions for process management.
+  - The directories and files included in .conf have to exist on the device that runs the backsup, if not the processes won't run or won't have the exepcted behaviour.
 - **manager Constraints**:
   - Dependent on the existence of connected clients.
 
@@ -65,8 +66,7 @@ Supervisor comprises two main entities:
   - `fsup <options> <pid>`: Performs operations on a process using options like "kill."
 
 - **Manager (Server)**:
-  - Manages clients and the processes they launch.
-  - Decision-making for process control and file modification.
+  - Monitoring traffic on remote connected stations.
 
 - **Operation Logging**:
   - `Backsup` logs all actions for tracking and analysis.
@@ -105,6 +105,7 @@ Supervisor comprises two main entities:
 ### 4.3 Manager
 - **Multithreading**: Handles multiple connected clients.
 - **Facile Communication**: Uses .json to send and receive data from backsup.
+- **Real time monitoring**: Uses epoll to trigger events on connected stations
 
 ## Architecture
 
