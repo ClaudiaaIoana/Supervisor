@@ -6,7 +6,7 @@ backsup: backsup.c
 fsup: fsup.c
 	gcc -o fsup ../utils/json.c fsup.c -pthread
 
-IP_SERVER = 127.0.0.1
+IP_SERVER = 192.168.90.254
 PORT = 12345
 
 run_backsup:

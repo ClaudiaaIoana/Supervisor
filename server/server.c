@@ -175,14 +175,13 @@ void *connection_handler(void *args)
                 for (int i = 0; i < MAX_CLIENTS; i++) {
                     if (clients[i] == 0) {
                         clients[i] = client_fd;
-                        ev.data.fd = clients[i];        
+                        ev.data.fd = clients[i];   
                         ev.events = EPOLLIN|EPOLLRDHUP;
                         epoll_ctl(epfd, EPOLL_CTL_ADD, clients[i], &ev);
                         num_clients++;
                         bzero(&client_addr, client_len);
-                        Client *client_info = get_client_info(client_fd);
                         char message[BUFFER_SIZE];
-                        sprintf(message, "INFO: connection on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+                        sprintf(message, "INFO: connection on %s:%d", get_client_info(clients[i])->ip, get_client_info(clients[i])->port);
                         log_entry(message);
                         break;
                     }
@@ -199,8 +198,8 @@ void *connection_handler(void *args)
                 if (events[i].events & EPOLLRDHUP) {
                     pthread_mutex_lock(&mutex_clients);
                     char message[BUFFER_SIZE];
-                    Client *client_info = get_client_info(clients[i]);
-                    sprintf(message, "INFO: connection closed on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+                    //Client *client_info = get_client_info(clients[i]);
+                    sprintf(message, "INFO: connection closed on %s:%d", get_client_info(client_fd)->ip, get_client_info(client_fd)->port);
                     log_entry(message);
                     close(clients[i]);
                     clients[i] = 0;
@@ -211,9 +210,9 @@ void *connection_handler(void *args)
 
                 else if (events[i].events & EPOLLIN) {
                     char message[BUFFER_SIZE];
-                    Client *client_info = get_client_info(events[i].data.fd);
-                    sprintf(message, "INFO: received message on %s:%d %s", client_info->ip, client_info->port, client_info->host);
-                    log_entry(message);
+                    //Client *client_info = get_client_info(events[i].data.fd);
+                    //sprintf(message, "INFO: received message on %s:%d", client_info->ip, client_info->port);
+                    //log_entry(message);
                     pthread_t client_thread;
                     client_fd = events[i].data.fd;
                     int rc = pthread_create(&client_thread, NULL, &client_handler, &client_fd);
@@ -228,8 +227,8 @@ terminate:
     for (int i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i] != 0) {
             char message[BUFFER_SIZE];
-            Client *client_info = get_client_info(clients[i]);
-            sprintf(message, "INFO: connection closed on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+            //Client *client_info = get_client_info(clients[i]);
+            sprintf(message, "INFO: connection closed on %s:%d", get_client_info(clients[i])->ip, get_client_info(clients[i])->port);
             log_entry(message);
             close(clients[i]);
         }
@@ -253,38 +252,37 @@ void *client_handler(void *args)
     buffer[bytesRead] = '\0';
 
     cJSON *json = cJSON_Parse(buffer);
-    cJSON *operation_json = cJSON_GetObjectItemCaseSensitive(json, "operation");
-    if (cJSON_IsString(operation_json) && (operation_json->valuestring != NULL)) {
-        if(strcmp(operation_json->valuestring, "exec") == 0) {
+    int operation_json = cJSON_GetObjectItemCaseSensitive(json, "operation")->valueint;
+
+        if(operation_json == 0) {
             operation = EXEC;
         }
-        else if(strcmp(operation_json->valuestring, "block") == 0) {
+        else if(operation_json == 1) {
             operation = BLOCK;
         }
-        else if(strcmp(operation_json->valuestring, "continue") == 0) {
+        else if(operation_json == 2) {
             operation = CONTINUE;
         }
-        else if(strcmp(operation_json->valuestring, "kill") == 0) {
+        else if(operation_json == 3) {
             operation = KILL;
         }
-    }
     
     char message[BUFFER_SIZE];
     switch(operation) {
         case EXEC:
-            sprintf(message, "INFO %s: exec %s\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valuestring);
+            sprintf(message, "INFO %s: exec %d\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valueint);
             log_entry(message);
             break;
         case BLOCK:
-            sprintf(message, "INFO %s: block %s\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valuestring);
+            sprintf(message, "INFO %s: block %d\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valueint);;
             log_entry(message);
             break;
         case CONTINUE:
-            sprintf(message, "INFO %s: continue %s\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valuestring);
+            sprintf(message, "INFO %s: continue %d\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valueint);
             log_entry(message);
             break;
         case KILL:
-            sprintf(message, "INFO %s: kill %s\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valuestring);
+            sprintf(message, "INFO %s: kill %d\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valueint);
             log_entry(message);
             break;
         default:
@@ -305,13 +303,13 @@ Client *get_client_info(int client_fd)
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
     int rc = getpeername(client_fd, (struct sockaddr*)&client_addr, &client_len);
-    //DIE(rc < 0, "getpeername()");
+    DIE(rc < 0, "getpeername()");
 
     client_info->fd = client_fd;
     client_info->ip = inet_ntoa(client_addr.sin_addr);
     client_info->port = ntohs(client_addr.sin_port);
-    struct hostent *host_info = gethostbyaddr(&(client_addr.sin_addr), sizeof(struct in_addr), AF_INET);
-    client_info->host = host_info->h_name;
+    //struct hostent *host_info = gethostbyaddr(&(client_addr.sin_addr), sizeof(struct in_addr), AF_INET);
+    //client_info->host = host_info->h_name;
 
     return client_info;
 }
@@ -404,8 +402,8 @@ void print_processes() {
 void print_clients() {
     for (size_t i = 0; i < MAX_CLIENTS; i++) {
         if (clients[i] != 0) {
-            Client *client_info = get_client_info(clients[i]);
-            printf("%zu\t%s\t%d\t%s\n", i + 1, client_info->ip, client_info->port, client_info->host);
+            //Client *client_info = get_client_info(clients[i]);
+            printf("%zu\t%s\t%d\t\n", i + 1, get_client_info(clients[i])->ip, get_client_info(clients[i])->port);
         }
     }
 }

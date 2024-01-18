@@ -9,7 +9,7 @@ client: client.c
 
 PORT = 12345
 
-IP_SERVER = 127.0.0.1
+IP_SERVER = 192.168.90.128
 
 run_server:
 	./server ${IP_SERVER} ${PORT}
