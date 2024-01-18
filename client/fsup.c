@@ -189,7 +189,6 @@ char *make_exec_string(const char *target_word)
     //get pid
     sprintf(pid_s, "%d", pid);
 
-
     strcpy(to_send,file);
     strcat(to_send," ");
     strcat(to_send,pid_s);
