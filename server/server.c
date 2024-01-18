@@ -305,7 +305,7 @@ Client *get_client_info(int client_fd)
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
     int rc = getpeername(client_fd, (struct sockaddr*)&client_addr, &client_len);
-    DIE(rc < 0, "getpeername()");
+    //DIE(rc < 0, "getpeername()");
 
     client_info->fd = client_fd;
     client_info->ip = inet_ntoa(client_addr.sin_addr);
