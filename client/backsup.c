@@ -245,7 +245,6 @@ int create_child_proccess(char *exec_name, Setting *settings)
     {
         printf("Parent proccess PID %d\n", getpid());
         add_proc(pid,exec_name);
-        printf("Out of add\n");
         return pid;
     }
 }
@@ -955,6 +954,7 @@ void* handle_client(void *arg)
             cJSON_AddNumberToObject(json, "operation", BLOCK);
             cJSON_AddStringToObject(json, "status", "blocked");
             cJSON_AddNumberToObject(json, "pid", pid_ch);
+            
             char *json_string = cJSON_Print(json);
             int rc = send(sockfd_manager, json_string, strlen(json_string), 0);
             DIE(rc < 0, "send()");
@@ -1132,6 +1132,16 @@ void add_proc(pid_t pid, char* conf)
         procs->next=NULL;
         procs->status=true;
         pthread_mutex_unlock(&mutex_pr);
+
+        cJSON *json = cJSON_CreateObject();
+        cJSON_AddNumberToObject(json, "operation", EXEC);
+        cJSON_AddStringToObject(json, "status", "started");
+        cJSON_AddNumberToObject(json, "pid", pid);
+        char *json_string = cJSON_Print(json);
+        int rc = send(sockfd_manager, json_string, strlen(json_string), 0);
+        DIE(rc < 0, "send()");
+        pthread_mutex_unlock(&mutex_pr);
+
         return;
     }
     Proc_ch *new=(Proc_ch*)malloc(sizeof(Proc_ch));
@@ -1141,7 +1151,7 @@ void add_proc(pid_t pid, char* conf)
     new->status=true;
     procs=new;
     num_proc++;
-    pthread_mutex_unlock(&mutex_pr);
+    
     cJSON *json = cJSON_CreateObject();
     cJSON_AddNumberToObject(json, "operation", EXEC);
     cJSON_AddStringToObject(json, "status", "started");
@@ -1149,6 +1159,7 @@ void add_proc(pid_t pid, char* conf)
     char *json_string = cJSON_Print(json);
     int rc = send(sockfd_manager, json_string, strlen(json_string), 0);
     DIE(rc < 0, "send()");
+    pthread_mutex_unlock(&mutex_pr);
 }
 
 void remove_proc(pid_t pid)
