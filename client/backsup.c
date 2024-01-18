@@ -23,7 +23,7 @@
 #include <stdbool.h>
 #include <dirent.h>
 #include <limits.h>
-#include<ctype.h>
+#include <ctype.h>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -70,10 +70,10 @@ typedef enum Operations{
 } Operations;
 
 typedef enum Commands {
-    EXEC,
-    BLOCK,
-    CONTINUE,
-    KILL
+    EXEC_COMMAND,
+    BLOCK_COMMAND,
+    CONTINUE_COMMAND,
+    KILL_COMMAND
 } Commands;
 
 struct Setting{
@@ -952,7 +952,7 @@ void* handle_client(void *arg)
         {
             pr->status=false;
             cJSON *json = cJSON_CreateObject();
-            cJSON_AddIntToObject(json, "operation", BLOCK);
+            cJSON_AddNumberToObject(json, "operation", BLOCK);
             cJSON_AddStringToObject(json, "status", "blocked");
             cJSON_AddNumberToObject(json, "pid", pid_ch);
             char *json_string = cJSON_Print(json);
@@ -971,7 +971,7 @@ void* handle_client(void *arg)
         {
             pr->status=true;
             cJSON *json = cJSON_CreateObject();
-            cJSON_AddIntToObject(json, "operation", CONTINUE);
+            cJSON_AddNumberToObject(json, "operation", CONTINUE);
             cJSON_AddStringToObject(json, "status", "resumed");
             cJSON_AddNumberToObject(json, "pid", pid_ch);
             char *json_string = cJSON_Print(json);
@@ -987,7 +987,7 @@ void* handle_client(void *arg)
             perror("kill");
 
         cJSON *json = cJSON_CreateObject();
-        cJSON_AddIntToObject(json, "operation", KILL);
+        cJSON_AddNumberToObject(json, "operation", KILL);
         cJSON_AddStringToObject(json, "status", "killed");
         cJSON_AddNumberToObject(json, "pid", pid_ch);
         char *json_string = cJSON_Print(json);
@@ -1058,23 +1058,23 @@ void* communicate_manager(void *arg)
         }
         Commands command = cJSON_GetObjectItem(json, "command")->valueint;
         switch(command) {
-            case EXEC: {
+            case EXEC_COMMAND: {
                 char *exec_name = cJSON_GetObjectItem(json, "exec_name")->valuestring;
                 char *conf = cJSON_GetObjectItem(json, "conf")->valuestring;
                 pid_t pid = create_child_proccess(exec_name, conf);
                 break;
             }
-            case BLOCK: {
+            case BLOCK_COMMAND: {
                 pid_t pid = cJSON_GetObjectItem(json, "pid")->valueint;
                 break;
             }
 
-            case CONTINUE: {
+            case CONTINUE_COMMAND: {
                 pid_t pid = cJSON_GetObjectItem(json, "pid")->valueint;
                 break;
             }
 
-            case KILL: {
+            case KILL_COMMAND: {
                 pid_t pid = cJSON_GetObjectItem(json, "pid")->valueint;
                 break;
             }
@@ -1143,13 +1143,12 @@ void add_proc(pid_t pid, char* conf)
     num_proc++;
     pthread_mutex_unlock(&mutex_pr);
     cJSON *json = cJSON_CreateObject();
-    cJSON_AddIntToObject(json, "operation", EXEC);
+    cJSON_AddNumberToObject(json, "operation", EXEC);
     cJSON_AddStringToObject(json, "status", "started");
     cJSON_AddNumberToObject(json, "pid", pid);
     char *json_string = cJSON_Print(json);
     int rc = send(sockfd_manager, json_string, strlen(json_string), 0);
     DIE(rc < 0, "send()");
-
 }
 
 void remove_proc(pid_t pid)
