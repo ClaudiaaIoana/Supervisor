@@ -11,13 +11,22 @@
 #include <netdb.h>
 #include <signal.h>
 #include <sys/signalfd.h>
+#include <sys/eventfd.h>
 
 #include "../utils/utils.h"
 #include "../utils/json.h"
+#include <stdbool.h>
 
 #define BUFFER_SIZE 1024
 #define MAX_PROCESSES 256
 #define MAX_CLIENTS 10
+
+typedef enum Operations{
+    EXEC,
+    BLOCK,
+    CONTINUE,
+    KILL
+} Operations;
 
 typedef struct Connection {
     __uint16_t port;
@@ -48,7 +57,8 @@ int clients[MAX_CLIENTS];
 pthread_mutex_t mutex_clients = PTHREAD_MUTEX_INITIALIZER;
 
 time_t current_time;
-
+int terminate_event_fd = 0;
+ 
 int main(int argc, char *argv[]);
 void init_manager_state(Manager *manager);
 void add_process(Manager *manager, pid_t pid, const char *process_name);
@@ -91,33 +101,18 @@ int main(int argc, char *argv[]) {
     pthread_t connection_thread;
     rc = pthread_create(&connection_thread, NULL, &connection_handler, connection);
     DIE(rc != 0, "pthread_create()");
-    
-    // pthread_t tasks_thread;
-    // rc = pthread_create(&tasks_thread, NULL, &tasks_handler, connection);
-    // DIE(rc != 0, "pthread_create()");
-
-    // pthread_t thread_pool[MAX_CLIENTS];
-    // for (size_t i = 0; i < MAX_CLIENTS; i++) {
-    //     rc = pthread_create(&thread_pool[i], NULL, &client_handler, manager);
-    //     DIE(rc != 0, "pthread_create()");
-    // }
-
-    // pthread_join(connection_thread, NULL);
-    // for(size_t i = 0; i < MAX_CLIENTS; i++) {
-    //     pthread_join(thread_pool[i], NULL);
-    // }
 
     pthread_join(connection_thread, NULL);
     pthread_join(server_cmd, NULL);
-    
-    //cleanup_state(manager);
-    //free(manager);
-    
+
+    cleanup_connection(connection);
+
     return EXIT_SUCCESS;
 }
 
 void *connection_handler(void *args)
 {   
+    log_entry("INFO: start");
     Connection *connection = (Connection*) args;
     struct sockaddr_in serv_addr;
     socklen_t socket_len = sizeof(struct sockaddr_in);
@@ -152,6 +147,13 @@ void *connection_handler(void *args)
     ev.data.fd = listen_fd;        
     ev.events = EPOLLIN;
     epoll_ctl(epfd, EPOLL_CTL_ADD, listen_fd, &ev);
+
+    terminate_event_fd = eventfd(0, 0);
+    DIE(terminate_event_fd < 0, "eventfd");
+
+    ev.data.fd = terminate_event_fd;
+    ev.events = EPOLLIN;
+    epoll_ctl(epfd, EPOLL_CTL_ADD, terminate_event_fd, &ev);
     
     int nfds = 0;
     int client_fd = 0;
@@ -162,7 +164,7 @@ void *connection_handler(void *args)
     socklen_t client_len = sizeof(client_addr);
 
     while(1) {
-        nfds = epoll_wait(epfd, &events, MAX_CLIENTS, -1);
+        nfds = epoll_wait(epfd, events, MAX_CLIENTS, -1);
         DIE(nfds < 0, "epoll_wait");
 
         for(int i = 0; i < nfds; i++) {
@@ -188,51 +190,111 @@ void *connection_handler(void *args)
                 pthread_mutex_unlock(&mutex_clients);
             }
 
-            else {
-                if (events[i].events & EPOLLIN) {
-                    for (int i = 0; i < MAX_CLIENTS; i++) {
-                        if (clients[i] == events[i].data.fd) {
-                            char message[BUFFER_SIZE];
-                            Client *client_info = get_client_info(clients[i]);
-                            sprintf(message, "INFO: received message on %s:%d %s", client_info->ip, client_info->port, client_info->host);
-                            log_entry(message);
-                            memset(message, 0, BUFFER_SIZE);
-                            int rc = read(clients[i], message, BUFFER_SIZE);
-                            DIE(rc < 0, "read()");
-                            break;
-                        }
-                    }
-                }
+            else if ((events[i].data.fd == terminate_event_fd) && ((events[i].events & EPOLLIN) != 0)) {
+                goto terminate;
+            }
 
+            else 
+            {
                 if (events[i].events & EPOLLRDHUP) {
                     pthread_mutex_lock(&mutex_clients);
-                    for (int i = 0; i < MAX_CLIENTS; i++) {
-                        if (clients[i] == events[i].data.fd) {
-                            char message[BUFFER_SIZE];
-                            Client *client_info = get_client_info(clients[i]);
-                            sprintf(message, "INFO: connection closed on %s:%d %s", client_info->ip, client_info->port, client_info->host);
-                            log_entry(message);
-                            close(clients[i]);
-                            clients[i] = 0;
-                            num_clients--;
-                            break;
-                        }
-                    }
+                    char message[BUFFER_SIZE];
+                    Client *client_info = get_client_info(clients[i]);
+                    sprintf(message, "INFO: connection closed on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+                    log_entry(message);
+                    close(clients[i]);
+                    clients[i] = 0;
+                    num_clients--;
                     pthread_mutex_unlock(&mutex_clients);
+                    break;
+                }
+
+                else if (events[i].events & EPOLLIN) {
+                    char message[BUFFER_SIZE];
+                    Client *client_info = get_client_info(events[i].data.fd);
+                    sprintf(message, "INFO: received message on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+                    log_entry(message);
+                    pthread_t client_thread;
+                    client_fd = events[i].data.fd;
+                    int rc = pthread_create(&client_thread, NULL, &client_handler, &client_fd);
+                    DIE(rc != 0, "pthread_create()");
+                    break;
                 } 
             }
         }       
+    }
+
+terminate:
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i] != 0) {
+            char message[BUFFER_SIZE];
+            Client *client_info = get_client_info(clients[i]);
+            sprintf(message, "INFO: connection closed on %s:%d %s", client_info->ip, client_info->port, client_info->host);
+            log_entry(message);
+            close(clients[i]);
+        }
+        log_entry("INFO: stop");
+        close(listen_fd);
+        return NULL;
     }
 }
 
 void *client_handler(void *args)
 {
+    int client_fd = *(int*)args;
+    char buffer[BUFFER_SIZE];
 
-}
+    ssize_t bytesRead = read(client_fd, buffer, sizeof(buffer) - 1);
+    if (bytesRead == -1) {
+	    DIE(bytesRead < 0, "read()");
+    }
 
-void *tasks_handler(void *args)
-{
+    Operations operation = 0;
+    buffer[bytesRead] = '\0';
+
+    cJSON *json = cJSON_Parse(buffer);
+    cJSON *operation_json = cJSON_GetObjectItemCaseSensitive(json, "operation");
+    if (cJSON_IsString(operation_json) && (operation_json->valuestring != NULL)) {
+        if(strcmp(operation_json->valuestring, "exec") == 0) {
+            operation = EXEC;
+        }
+        else if(strcmp(operation_json->valuestring, "block") == 0) {
+            operation = BLOCK;
+        }
+        else if(strcmp(operation_json->valuestring, "continue") == 0) {
+            operation = CONTINUE;
+        }
+        else if(strcmp(operation_json->valuestring, "kill") == 0) {
+            operation = KILL;
+        }
+    }
     
+    char message[BUFFER_SIZE];
+    switch(operation) {
+        case EXEC:
+            sprintf(message, "INFO %s: exec %s\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valuestring);
+            log_entry(message);
+            break;
+        case BLOCK:
+            sprintf(message, "INFO %s: block %s\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valuestring);
+            log_entry(message);
+            break;
+        case CONTINUE:
+            sprintf(message, "INFO %s: continue %s\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valuestring);
+            log_entry(message);
+            break;
+        case KILL:
+            sprintf(message, "INFO %s: kill %s\n", get_client_info(client_fd)->ip, cJSON_GetObjectItemCaseSensitive(json, "pid")->valuestring);
+            log_entry(message);
+            break;
+        default:
+            sprintf(message, "INFO %s: invalid operation\n", get_client_info(client_fd)->ip);
+            break;
+    }
+    buffer[bytesRead] = '\0';
+
+
+    return NULL;
 }
 
 Client *get_client_info(int client_fd)
@@ -273,7 +335,7 @@ void *server_command(void *args)
 
     struct epoll_event ret_ev;
     int nfds = 0;
-    
+
     while(1) {
 
         printf("manager> ");
@@ -287,14 +349,14 @@ void *server_command(void *args)
             int bytesRead = read(STDIN_FILENO, buffer, sizeof(buffer));
             DIE(bytesRead < 0, "read()");
             buffer[bytesRead - 1] = 0;
-            if(strcmp(buffer, "clients") == 0) {
+            if(strcmp(buffer, "cl") == 0) {
                 print_clients();
             }
-            else if(strcmp(buffer, "processes") == 0) {
-                print_processes();
-            }
+
             else if(strcmp(buffer, "exit") == 0) {
-                exit(0);
+                u_int64_t terminate = 1;
+                write(terminate_event_fd, &terminate, sizeof(uint64_t));
+                break;
             }
             else {
                 printf("Invalid command\n");
@@ -303,12 +365,10 @@ void *server_command(void *args)
 
         else if ((ret_ev.data.fd == sfd) && ((ret_ev.events & EPOLLIN) != 0)) {
             int s = read(sfd, &fdsi, sizeof(struct signalfd_siginfo));
-            if (fdsi.ssi_signo == SIGINT) {
-                exit(0);
-            } else if (fdsi.ssi_signo == SIGQUIT) {
-                exit(0);
-            } else {
-                printf("unexpected signal\n");
+            if (fdsi.ssi_signo == SIGINT || fdsi.ssi_signo == SIGQUIT) {
+                u_int64_t terminate = 1;
+                write(terminate_event_fd, &terminate, sizeof(uint64_t));
+                break;
             }
         }
     }
@@ -316,6 +376,7 @@ void *server_command(void *args)
 
 void init_manager_state(Manager *manager)
 {
+
     manager->process_count = 0;
     manager->capacity = 256;
 }
@@ -355,5 +416,6 @@ void cleanup_state(Manager *manager) {
 }
 
 void cleanup_connection(Connection *connection) {
-
+    free(connection->ip);
+    free(connection);
 }

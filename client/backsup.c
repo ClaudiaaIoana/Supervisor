@@ -62,6 +62,20 @@ int sockfd_fsup_comm;
 #define W_GOWNER    7
 #define W_OWNER     8
 
+typedef enum Operations{
+    EXEC,
+    BLOCK,
+    CONTINUE,
+    KILL
+} Operations;
+
+typedef enum Commands {
+    EXEC,
+    BLOCK,
+    CONTINUE,
+    KILL
+} Commands;
+
 struct Setting{
     int     set_w;
     char    parameters[200];
@@ -77,6 +91,8 @@ struct Connection{
 pthread_mutex_t mutex_pr;
 
 pthread_mutex_t mutex_log;
+
+int sockfd_manager = 0;
 
 FILE* log=NULL;
 
@@ -489,7 +505,7 @@ char* analise_config(char *filename, Setting *settings, bool *flag)
         {
             printf("Incorect key word: %s\n", word);
             continue;
-        }else 
+        } else 
         if(key == W_STDIN || key == W_STDOUT || key == W_STDERR)
         {
             (*flag)=true;
@@ -617,7 +633,6 @@ void apply_settings(Setting * settings)
         default:
             break;
         }
-
     }
 }
 
@@ -936,6 +951,13 @@ void* handle_client(void *arg)
         if(pr)
         {
             pr->status=false;
+            cJSON *json = cJSON_CreateObject();
+            cJSON_AddIntToObject(json, "operation", BLOCK);
+            cJSON_AddStringToObject(json, "status", "blocked");
+            cJSON_AddNumberToObject(json, "pid", pid_ch);
+            char *json_string = cJSON_Print(json);
+            int rc = send(sockfd_manager, json_string, strlen(json_string), 0);
+            DIE(rc < 0, "send()");
         }
     }
     else if(strcmp(p,"continue")==0)
@@ -948,6 +970,13 @@ void* handle_client(void *arg)
         if(pr)
         {
             pr->status=true;
+            cJSON *json = cJSON_CreateObject();
+            cJSON_AddIntToObject(json, "operation", CONTINUE);
+            cJSON_AddStringToObject(json, "status", "resumed");
+            cJSON_AddNumberToObject(json, "pid", pid_ch);
+            char *json_string = cJSON_Print(json);
+            int rc = send(sockfd_manager, json_string, strlen(json_string), 0);
+            DIE(rc < 0, "send()");
         }
     }
     else if(strcmp(p,"kill")==0)
@@ -956,6 +985,14 @@ void* handle_client(void *arg)
         pid_t pid_ch=atoi(p);
         if (kill(pid_ch, SIGTERM) == -1) 
             perror("kill");
+
+        cJSON *json = cJSON_CreateObject();
+        cJSON_AddIntToObject(json, "operation", KILL);
+        cJSON_AddStringToObject(json, "status", "killed");
+        cJSON_AddNumberToObject(json, "pid", pid_ch);
+        char *json_string = cJSON_Print(json);
+        int rc = send(sockfd_manager, json_string, strlen(json_string), 0);
+        DIE(rc < 0, "send()");
     }
 
     close(client_fd);
@@ -990,13 +1027,62 @@ void* communicate_manager(void *arg)
 
     //TODO: uncommend, jurnalizare, rese conditions, mutes pt scrierea in fisier
     
-    /* rc = inet_pton(AF_INET, conn_param->ip, &serv_addr.sin_addr.s_addr);
+    rc = inet_pton(AF_INET, conn_param->ip, &serv_addr.sin_addr.s_addr);
     DIE(rc <= 0, "inet_pton");
 
     rc = connect(conn_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
     DIE(rc < 0, "connect()");
 
-    printf("Connected to the manager...\n"); */
+    printf("Connected to the manager...\n"); 
+
+    sockfd_manager = conn_fd;
+
+    char buffer[1024];
+    while(1) {
+        int rc = read(sockfd_manager, buffer, sizeof(buffer));
+
+        if (rc == 0) {
+            printf("The manager has closed the connection\n");
+            break;
+        }
+        if (rc < 0) {
+            perror("read");
+            break;
+        }
+
+        buffer[rc] = '\0';
+        cJSON *json = cJSON_Parse(buffer);
+        if (json == NULL) {
+            printf("Error parsing JSON: %s\n", cJSON_GetErrorPtr());
+            break;
+        }
+        Commands command = cJSON_GetObjectItem(json, "command")->valueint;
+        switch(command) {
+            case EXEC: {
+                char *exec_name = cJSON_GetObjectItem(json, "exec_name")->valuestring;
+                char *conf = cJSON_GetObjectItem(json, "conf")->valuestring;
+                pid_t pid = create_child_proccess(exec_name, conf);
+                break;
+            }
+            case BLOCK: {
+                pid_t pid = cJSON_GetObjectItem(json, "pid")->valueint;
+                break;
+            }
+
+            case CONTINUE: {
+                pid_t pid = cJSON_GetObjectItem(json, "pid")->valueint;
+                break;
+            }
+
+            case KILL: {
+                pid_t pid = cJSON_GetObjectItem(json, "pid")->valueint;
+                break;
+            }
+
+            default:
+                break;
+        }
+    }
 }
 
 void handle_forced_exit(int signum)
@@ -1056,6 +1142,14 @@ void add_proc(pid_t pid, char* conf)
     procs=new;
     num_proc++;
     pthread_mutex_unlock(&mutex_pr);
+    cJSON *json = cJSON_CreateObject();
+    cJSON_AddIntToObject(json, "operation", EXEC);
+    cJSON_AddStringToObject(json, "status", "started");
+    cJSON_AddNumberToObject(json, "pid", pid);
+    char *json_string = cJSON_Print(json);
+    int rc = send(sockfd_manager, json_string, strlen(json_string), 0);
+    DIE(rc < 0, "send()");
+
 }
 
 void remove_proc(pid_t pid)
@@ -1086,7 +1180,6 @@ void remove_proc(pid_t pid)
         prev=aux;
         aux=aux->next;
     }
-    pthread_mutex_unlock(&mutex_pr);
 }
 
 Proc_ch *get_proc(pid_t pid)
